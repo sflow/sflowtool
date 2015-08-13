@@ -1,0 +1,2 @@
+The code in the "src" directory compiles cleanly in a Microsoft Visual C++ "console application" project on Windows 7, provided you set the option to compile as C++ (Project>Properties>C/C++>Advanced>Compile As == C++).  This distribution now also contains "solution" and "project" files from Microsoft Visual C++ Express 2010.
+

@@ -1,0 +1,27 @@
+#!/usr/bin/awk -f
+#
+# Copyright (c) 2001 InMon Corp. Licensed under the terms of the InMon sFlow licence:
+# http://www.inmon.com/technology/sflowlicense.txt
+
+BEGIN{ lastInt = 0; }
+/unixSecondsUTC/{ 
+  currentInt = $2 - ($2 % 60);
+  if(currentInt != lastInt) {
+    for(i = 1; i <= 5; i++) {
+      maxCount = 0;
+      maxKey = "";
+      for(key in count) {
+        if(count[key] > maxCount) {
+          maxCount = count[key];
+          maxKey = key;
+        }
+      }
+      if(maxCount > 0) print strftime("%R", lastInt) " " i " " maxKey " " maxCount;
+      delete count[maxKey];
+    }
+    lastInt = currentInt;
+    delete count;
+  }
+}
+/srcIP/{ count[$2] = count[$2] + 1; }
+END{}

@@ -1,0 +1,21 @@
+#!/usr/bin/awk -f
+#
+# Copyright (c) 2001 InMon Corp. Licensed under the terms of the InMon sFlow licence:
+# http://www.inmon.com/technology/sflowlicense.txt
+
+BEGIN{ lastInt = 0; }
+/unixSecondsUTC/{ 
+  currentInt = $2 - ($2 % 3600);
+  if(currentInt != lastInt) {
+    for(key in count) {
+      print strftime("%R", lastInt) " " key " " count[key];
+    }
+    lastInt = currentInt;
+    delete count;
+  }
+}
+/srcIP/{ srcIP = $2; }
+/dstIP/{
+  key = srcIP " " $2;
+  count[key] = count[key] + 1; }
+END{}

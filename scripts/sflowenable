@@ -1,0 +1,159 @@
+#!/bin/bash
+# Script to turn on sFlow(R) sampling using the sFlow version 5 MIB, see:
+# http://www.sflow.org/
+#
+# Copyright (c) 2001 InMon Corp. Licensed under the terms of the InMon sFlow licence:
+# http://www.inmon.com/technology/sflowlicense.txt
+
+MINPARAMS=3
+if [ $# -lt "$MINPARAMS" ] 
+then
+  echo "Usage: $0 switch community receiver [port] [rate] [interval] [timeout] [force]"
+  echo "  where:"
+  echo "    switch, IP address of sFlow enabled switch/router"
+  echo "    community, SNMP community string"
+  echo "    receiver, destination IP address for sFlow datagrams"
+  echo "    port, destination UDP port for sFlow datagrams (default=6343)"
+  echo "    rate, packet sampling rate (default=512)"
+  echo "    interval, counter polling interval (default=60)"
+  echo "    timeout, number of seconds to maintain sampling (default=3600)"
+  echo "    force, 0 = respect existing reservations, 1 = force settings"
+  echo "Note: Setting timeout to 0 stops sampling and frees resources"
+  exit 1
+fi
+
+# initialize mandatory variables
+SWITCH=$1
+COMMUNITY=$2
+RECEIVER=$3
+
+# initialize optional variables
+PORT=${4:-6343}
+RATE=${5:-512}
+INTERVAL=${6:-60}
+TIMEOUT=${7:-3600}
+USEFORCE=${8:-0}
+
+# initialize static variables
+OWNER="$HOSTNAME;$0" 
+ADDRESSTYPE=1 # IP v4
+SFLOWMIB=".1.3.6.1.4.1.14706.1"
+IFINDEX="11.1.3.6.1.2.1.2.2.1.1"
+ 
+echo "Finding a free slot in in the sFlowRcvrTable"
+
+RCVRINDEX=$(snmpwalk -v 2c -Oqn -c $COMMUNITY $SWITCH $SFLOWMIB.1.4.1.2 | awk -v me=$OWNER -v useforce=$USEFORCE --source '
+ BEGIN{lastFree=0; lastMine=0; last=0;}
+ {
+   split($1,parts,".");
+   idx = parts[14];
+   owner = $2;
+   gsub("\"","",owner);  # remove quotes
+   last = idx;
+   if(owner == me) lastOwner = idx;
+   if(owner == "") lastFree = idx;
+ } 
+ END{
+   if(lastOwner) print lastOwner;
+   else if(lastFree) print lastFree;
+   else if(useforce) print last;
+ }')
+
+if [ ! $RCVRINDEX ]
+then 
+  echo "No free sFlowRcvrTable entries found, current sFlowRcvrOwners:"
+  snmpwalk -v 2c -Oqn -c $COMMUNITY $SWITCH $SFLOWMIB.1.4.1.2 | awk --source '{print $2}'
+  exit 1
+fi 
+
+if [ $TIMEOUT -eq 0 ]
+then
+  echo "Free sFlowRcvrTable entry $RCVRINDEX"
+  snmpset -v 2c -c $COMMUNITY $SWITCH $SFLOWMIB.1.4.1.2.$RCVRINDEX s ""
+  exit 1
+fi
+
+HEXRECEIVER=$(echo $RECEIVER | awk --source '{split($0,parts,"."); printf "%.2X%.2X%.2X%.2X",parts[1],parts[2],parts[3],parts[4]}')
+
+echo "Grabbing entry in sFlowRcvrTable:"
+echo "sFlowRcvrIndex       = $RCVRINDEX"
+echo "sFlowRcvrOwner       = $OWNER"
+echo "sFlowRcvrTimeout     = $TIMEOUT"
+echo "sFlowRcvrAddressType = $ADDRESSTYPE"
+echo "sFlowRcvrAddress     = $RECEIVER ($HEXRECEIVER)"
+echo "sFlowRcvrPort        = $PORT"
+
+
+snmpset -v 2c -c $COMMUNITY $SWITCH $SFLOWMIB.1.4.1.2.$RCVRINDEX s $OWNER $SFLOWMIB.1.4.1.3.$RCVRINDEX i $TIMEOUT $SFLOWMIB.1.4.1.5.$RCVRINDEX i $ADDRESSTYPE $SFLOWMIB.1.4.1.6.$RCVRINDEX x $HEXRECEIVER $SFLOWMIB.1.4.1.7.$RCVRINDEX i $PORT
+
+if [ $? -ne 0 ]
+then 
+  echo "SNMP set failed"
+  exit 1;
+fi
+
+echo "Grabbing entries in sFlowFsTable"
+
+for ENTRY in $(snmpwalk -v 2c -Oqn -c $COMMUNITY $SWITCH $SFLOWMIB.1.5.1.3.$IFINDEX | awk -v myRcvrIndex=$RCVRINDEX -v useforce=$USEFORCE --source '
+{
+  split($1,parts,".");
+  ifIndex = parts[25];
+  instance = parts[26];
+
+  reciever = $2;
+
+  last[ifIndex] = instance;
+  if(receiver == myRcvrIndex) lastOwner[ifIndex] = instance;
+  if(receiver == 0) lastFree[ifIndex] = instance;
+} 
+END{
+   for (i in last) {
+     if(lastOwner[i]) print i "." lastOwner[i];
+     else if(lastFree[i]) print i "." lastFree[i];
+     else if(useforce) print i "." last[i];
+   }
+}'); do
+  echo "sFlowFsDataSource.sFlowFsInstance=$ENTRY sFlowFsPacketSamplingRate=$RATE"
+
+  if [ "$USEFORCE" -ne "0" ]
+  then
+    echo "Using force, clear entry first"
+    snmpset -v 2c -c $COMMUNITY $SWITCH $SFLOWMIB.1.5.1.3.$IFINDEX.$ENTRY i 0
+    echo "Now set values"
+  fi
+  snmpset -v 2c -c $COMMUNITY $SWITCH $SFLOWMIB.1.5.1.3.$IFINDEX.$ENTRY i $RCVRINDEX $SFLOWMIB.1.5.1.4.$IFINDEX.$ENTRY i $RATE
+done
+
+echo "Grabbing entries in sFlowCpTable"
+
+for ENTRY in $(snmpwalk -v 2c -Oqn -c $COMMUNITY $SWITCH $SFLOWMIB.1.6.1.3.$IFINDEX | awk -v myRcvrIndex=$RCVRINDEX -v useforce=$USEFORCE --source '
+{
+  split($1,parts,".");
+  ifIndex = parts[25];
+  instance = parts[26];
+
+  reciever = $2;
+
+  last[ifIndex] = instance;
+  if(receiver == myRcvrIndex) lastOwner[ifIndex] = instance;
+  if(receiver == 0) lastFree[ifIndex] = instance;
+} 
+END{
+   for (i in last) {
+     if(lastOwner[i]) print i "." lastOwner[i];
+     else if(lastFree[i]) print i "." lastFree[i];
+     else if(useforce) print i "." last[i];
+   }
+}'); do
+
+  echo "sFlowCpDataSource.sFlowCpInstance=$ENTRY sFlowCpInterval=$INTERVAL"
+
+  if [ "$USEFORCE" -ne "0" ]
+  then
+    echo "Using force, clear entry first"
+    snmpset -v 2c -c $COMMUNITY $SWITCH $SFLOWMIB.1.6.1.3.$IFINDEX.$ENTRY i 0
+    echo "Now set values"
+  fi
+  
+  snmpset -v 2c -c $COMMUNITY $SWITCH $SFLOWMIB.1.6.1.3.$IFINDEX.$ENTRY i $RCVRINDEX $SFLOWMIB.1.6.1.4.$IFINDEX.$ENTRY i $INTERVAL
+done

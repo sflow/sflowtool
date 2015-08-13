@@ -1,0 +1,42 @@
+#!/usr/bin/perl
+# Copyright (c) 2001 InMon Corp. Licensed under the terms of the InMon sFlow licence:
+# http://www.inmon.com/technology/sflowlicense.txt
+
+#makes things work when run without install
+use lib qw( ../perl-shared/blib/lib ../perl-shared/blib/arch );
+
+#makes programm work AFTER install
+use lib qw( /usr/local/rrdtool-1.0.33/lib/perl ../lib/perl );
+
+use vars qw(@ISA $loaded);
+use RRDs;
+
+$dataDir="/home/httpd/cgi-bin/ifdata";
+
+while(<>) {
+    ($key, $value) = split /[\t =]+/, $_;
+    chomp $key;
+    chomp $value;
+
+    if($key eq "unixSecondsUTC") {$t = $value;}
+    if($key eq "agent") {$agent = $value;}
+    if($key eq "ifIndex") {$ifIndex = $value;}
+    if($key eq "ifInOctets") {$ifInOctets = $value;}
+    if($key eq "ifOutOctets") {
+	$ifOutOctets = $value;
+
+	$rrd = "$dataDir/$agent-$ifIndex.rrd";
+	if(! -e $rrd) {
+	    RRDs::create ($rrd, "--start",$t-1, "--step",20,
+			 "DS:bytesIn:COUNTER:120:0:10000000",
+			 "DS:bytesOut:COUNTER:120:0:10000000",
+			 "RRA:AVERAGE:0.5:3:288");
+	    $ERROR = RRDs::error;
+	    die "$0: unable to create `$rrd': $ERROR\n" if $ERROR;
+	}
+        RRDs::update $rrd, "$t:$ifInOctets:$ifOutOctets";
+	if ($ERROR = RRDs::error) {
+	    die "$0: unable to update `$rrd': $ERROR\n";
+	}
+    }
+}

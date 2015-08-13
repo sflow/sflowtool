@@ -1,0 +1,33 @@
+The 'sflowenable' script can be used to configure a device to send
+sFlow if it supports the sFlow version 5 SNMP MIB.  Run with no parameters
+to see usage instructions.
+
+The following additional scripts are provided as examples to
+demonstrate some applications of sflowtool:
+
+1. ipTopTalkers
+
+./sflowtool | ./ipTopTalkers
+
+Generates minute by minute top IP sources.
+
+2. ipTrafficMatrix
+
+./sflowtool | ./ipTrafficMatrix
+
+Generates hourly IP source,destination traffic matrices.
+
+3. sflowRRDLoad/sflowRRDChart.cgi
+
+Makes use of RRDTool <http://people.ee.ethz.ch/~oetiker/webtools/rrdtool/> to
+generate input/output traffic charts for each interface monitored using sFlow.
+
+Place both scripts in a directory under your web root and enable cgi scripts
+in this directory. Create images and ifdata subdirectories.
+
+./sflowtool | ./sflowRRDLoad
+
+creates RRD database files of the form ifdata/<agent>-<ifIndex>.rrd.
+
+sflowRRDChart.cgi creates a form that allows charts to be created from the
+stored data. The charts will be stored in the images directory.

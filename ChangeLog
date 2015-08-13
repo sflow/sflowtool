@@ -1,0 +1,134 @@
+Aug-13-2015:
+       3.36: - incorporate buffer-overrun protection suggestions from Andre Gruenenberg
+	     - incorporate portability changes from Rowan Thorpe
+	     - incorporate IPv6 forwarding changes from Rowan Thorpe
+	     - print IPID field from IPv4 sampled headers
+Feb-24-2015:
+       3.35: - add Broadcom ASIC counters structure
+             - add TCP/IP counters structure
+Dec-04-2014:
+       3.34: - decode new counters in host cpu struct (steal, guest, and guest_nice)
+Dec-01-2014:
+       3.33: - bugfix: app-sample status and duration_uS fields were reversed
+May-27-2014:
+       3.32 - fix UUID printing (bug introduced in 3.31)
+            - move compiler pragmas outside function boundry (to avoid compile errors with older compilers)
+Apr-11-2014:
+       3.31 - Accepted patches from Rowan Thope clean up code, including:
+ 		adjust interpreter locations
+		improve option parsing
+        	new '-k' option to keep going even in the event of a select() error
+            - accept new Linux pcap encapsulation
+	    - new '-g' option to output in 'grep-friendly' format to make scripting easier
+Oct-18-2013:
+       3.30 - exit if printf() fails. Important for detecting streaming errors. Thanks to Nick Hilliard.
+	    - add tunnel structures (http://sflow.org/sflow_tunnels.txt)
+Oct-2-2013:
+       3.29 - added decode for nat_port structure
+	    - include intypes.h for PRIu64 etc.
+	    - minor bugfixes - thanks to Rowan Thorpe
+Sep-27-2012:
+       3.28 - added decodes for proxy structures
+	    - added decode for LAG/MLAG structure
+Jul-19-2012:
+       3.27 - compile with -DDEBUG to abort() on exception and force error output to stdout stream
+            - added decode for NVML structure
+Jun-4-2012:
+       3.26 - allowing forwarding to apply to packets read from pcap as well as from udp socket
+	    - include spec file for building rpms
+Mar-23-2012:
+       3.25 - when reading pcap, try harder to parse the header properly to get to the sFlow datagram
+Feb-7-2012:
+       3.24 - include config_windows.h and Visual C++ express solution and project files with dist
+Dec-16-2011:
+       3.23 - add decode for counters struct 0:2204 (memcached)
+	    - add decode for counters struct 0:2106 (Java JMX)
+	    - add decodes for experimental generic application (APP_*) structures
+Apr-14-2011:
+       3.20 - compiles clean on MS Visual C++ (with project->options->advanced->compile-as = C++)
+            - make listening for ipv4 only an option: "-4"
+Apr-7-2011:
+       3.19 - open and bind ipv4 socket if ipv6 socket fails
+	    - fix print format string error - thanks to Rick Jones
+Dec-22-2010
+       3.18 - add decodes for sflow-httpd, and common-logfile-format output (experimental)
+Sep-23-2010
+       3.17 - add decodes for sflow-memcached (experimental)
+	    - add decodes for virtual host-sflow structs
+May-17-2010
+       3.16 - host-sflow memory counters changed to 64-bit
+April-8-2010
+       3.15 - add host-sflow structure decodes
+	    - add more wifi-sflow structure decodes
+	    - fix bug/overrun vulnerability in getData32 - thanks to Sven Eshenberg
+April-22-2009
+       3.14 -  clear dst_peer_as,dst_as every time - thanks to Marc Lavine
+October-10-2008
+       3.13 - revert to using select() for WIN32 - thanks to Marc Lavine
+	    - allow NetFlow forwarding when input was IPV4 structure - thanks to Sergey Drazhnikov
+	    - detect missing command-line arguments
+August-14-2007
+	    - allow new POS and 80211 header-protocol types
+June-4-2007
+       3.12 - clear the gotIPV6 flag for each sampled header - thanks to Rita Hiu
+June-1-2007
+       3.11 - use non-blocking I/O - thanks to Wolfgang Powisch
+            - avoid struct timeval in pcap header because time_t is 64-bits on some platforms
+March-28-2006
+       3.10 - use poll() instead of select()
+	    - removed dcd_srcIP, dcd_dstIP and used the SFLAddress fields ipsrc and ipdst instead
+	    - finished the decode of the SFLSampled_ipv6 structure
+	    - option to filter by vlan - thanks to Christian Hammers
+	    - option (-x) to strip IP payload when writing tcpdump format - thanks to Richard Clayton
+	    - bugfix: all diganostics to stderr when output is tcpdump - thanks to Richard Clayton
+	    - if netflow output, then normal text output is suppressed
+	    - bugfix: use u_char when printing MAC addresses from SFLSampled_ethernet struct
+Sep-19-2005
+	3.9 - bugfix: windows printf needs %I64 instead of %ll for 64-bit integer output
+Jun-28-2005
+	3.8 - added IPv6 header decode
+	    - on windows, now sets stdout to binary for pcap output (for piping into snort or windump)
+Apr-11-2005
+	3.7 - added experimental "process" struct entension
+Nov-26-2004
+	3.6 - bugfix: skipping over unknown structures
+	    - added "-f host/port" option to forward sflow to (multiple) collectors
+	    - added "-l" options to generate csv output with 1-line per flow or counter sample
+	    - added decode for "Processor" structure, as defined in sflow5 spec.
+Jul-14-2004
+	3.5 fixed compile problem on Opteron
+	    - added "-r <file>" option to read sflow from tcpdump capture file instead of from UDP socket
+Jun-17-2004
+	3.4 support for SFLFLOW_SAMPLE_EXPANDED and SFLCOUNTERS_SAMPLE_EXPANDED
+Dec-09-2003
+	3.3 new MPLS and VLAN structures added
+Jun-18-2003
+	3.2 "stripped" field added to sFlow v5
+Jun-19-2003
+	3.1 BGP next hop field added to sFlow v5
+Feb-10-2003
+	3.0 sFlow version 5 support
+Oct-17-2002
+	2.3 bugfixes to counter value reporting
+Oct-8-2002
+	2.2 bugfixes to SNAP and IP decodes (thanks to Marc Lavine of Foundry Networks)
+	    - CFLAGS option -DSPOOFSOURCE now works on Solaris as well as Linux
+	    - bugfix to NetFlow scaling (was defaulting OFF, when supposed to be defaulting ON)
+July-31-2002
+	2.0 support for sFlow version 4 datagram (RFC 3176)
+May-16-2002
+	1.5 allow compiling with -DSPOOFSOURCE, which then enables the "-S" flag, to spoof the source
+	address of netflow packets to match the IP address of the original sflow agent. Note that this
+	is only necessary for netflow output. In the case of sFlow output there is a separate field for
+	the agent IP address, so the receiver can always read it from there.
+May-3-2002
+	1.4 handle ip fragments better - especially important for udp
+            + netflow v5 export, bytes counted from start of ipv4 header.
+Feb-7-2002
+	1.3 bugfixes to timestamps in NetFlow v5 export - thanks to Chris Cook of Asta Networks
+            + changes to configure.in and sflowtool.h to try and improve portability across unix platforms
+Jan-15-2002
+	1.2 changes to allow compilation on Solaris - thanks to Bogdan Ionescu from University of Ottowa
+May-31-2001
+	1.0 initial release, works with sFlow version 2
+	
