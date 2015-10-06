@@ -3954,30 +3954,30 @@ static void readRTMetric(SFSample *sample)
 	break;
       case 1:
 	mvali32 = getData32(sample);
-	sf_log(sample, "%s = (counter32) %u\n", mname, mvali32);
+	sf_log(sample, "rtmetric %s = (counter32) %u\n", mname, mvali32);
 	break;
       case 2:
 	mvali64 = getData64(sample);
-	sf_log(sample, "%s = (counter64) %"PRIu64"\n", mname, mvali64);
+	sf_log(sample, "rtmetric %s = (counter64) %"PRIu64"\n", mname, mvali64);
 	break;
       case 3:
 	mvali32 = getData32(sample);
-	sf_log(sample, "%s = (gauge32) %u\n", mname, mvali32);
+	sf_log(sample, "rtmetric %s = (gauge32) %u\n", mname, mvali32);
 	break;
       case 4:
 	mvali64 = getData64(sample);
-	sf_log(sample, "%s = (gauge64) %"PRIu64"\n", mname, mvali64);
+	sf_log(sample, "rtmetric %s = (gauge64) %"PRIu64"\n", mname, mvali64);
 	break;
       case 5:
 	mvalfloat = getFloat(sample);
-	sf_log(sample, "%s = (gaugefloat) %.3f\n", mname, mvalfloat);
+	sf_log(sample, "rtmetric %s = (gaugefloat) %.3f\n", mname, mvalfloat);
 	break;
       case 6:
 	mvaldouble = getDouble(sample);
-	sf_log(sample, "%s = (gaugefloat) %.3f\n", mname, mvaldouble);
+	sf_log(sample, "rtmetric %s = (gaugefloat) %.3f\n", mname, mvaldouble);
 	break;
       default:
-	sf_log(sample, "unknown_rtmetric_type %u\n", mtype);
+	sf_log(sample, "rtmetric unknown_type %u\n", mtype);
 	SFABORT(sample, SF_ABORT_DECODE_ERROR);
 	break;
       }
@@ -4050,28 +4050,28 @@ static void readRTFlow(SFSample *sample)
 	break;
       case 4:
 	fvali32 = getData32(sample);
-	sf_log(sample, "%s = (int32) %u\n", fname, fvali32);
+	sf_log(sample, "rtflow %s = (int32) %u\n", fname, fvali32);
 	break;
       case 5:
 	fvali64 = getData64(sample);
-	sf_log(sample, "%s = (int64) %"PRIu64"\n", fname, fvali64);
+	sf_log(sample, "rtflow %s = (int64) %"PRIu64"\n", fname, fvali64);
 	break;
       case 6:
 	fvalfloat = getFloat(sample);
-	sf_log(sample, "%s = (gaugefloat) %.3f\n", fname, fvalfloat);
+	sf_log(sample, "rtflow %s = (gaugefloat) %.3f\n", fname, fvalfloat);
 	break;
       case 7:
 	fvaldouble = getDouble(sample);
-	sf_log(sample, "%s = (gaugefloat) %.3f\n", fname, fvaldouble);
+	sf_log(sample, "rtflow %s = (gaugefloat) %.3f\n", fname, fvaldouble);
 	break;
       default:
-	sf_log(sample, "unknown_rtflow_type %u\n", ftype);
+	sf_log(sample, "rtflow unknown_type %u\n", ftype);
 	SFABORT(sample, SF_ABORT_DECODE_ERROR);
 	break;
       }
     }
   }
-  lengthCheck(sample, "rtmetric_sample", sampleStart, sampleLength);
+  lengthCheck(sample, "rtflow_sample", sampleStart, sampleLength);
 }
 
 /*_________________---------------------------__________________
