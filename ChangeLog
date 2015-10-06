@@ -1,3 +1,6 @@
+Oct-5-2015:
+       3.37: - print rtmetric and rtflow samples
+             - include timestamp in grep-friendly (-g) output
 Aug-13-2015:
        3.36: - incorporate buffer-overrun protection suggestions from Andre Gruenenberg
 	     - incorporate portability changes from Rowan Thorpe

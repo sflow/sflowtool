@@ -254,6 +254,7 @@ typedef struct _SFSample {
   uint32_t rawSampleLen;
   uint8_t *endp;
   time_t pcapTimestamp;
+  time_t readTimestamp;
 
   /* decode cursor */
   uint32_t *datap;
@@ -486,8 +487,11 @@ void sf_log(SFSample *sample, char *fmt, ...)
 
   if(sfConfig.outputFormat == SFLFMT_SCRIPT) {
     /* scripts like to have all the context on every line */
-    char agentIP[51], tag1[51], tag2[51];
-    printf("%s %u %u %u:%u %s %s ",
+    char agentIP[51], tag1[51], tag2[51], nowstr[200];
+    time_t now = sample->pcapTimestamp ?: sample->readTimestamp;
+    strftime(nowstr, 200, "%d/%b/%Y:%H:%M:%S", localtime(&now));
+    printf("%s %s %u %u %u:%u %s %s ",
+	   nowstr,
 	   printAddress(&sample->agent_addr, agentIP),
 	   sample->agentSubId,
 	   sample->sequenceNo,
@@ -1576,6 +1580,13 @@ static uint64_t getData64(SFSample *sample) {
   tmpHi = getData32(sample);
   tmpLo = getData32(sample);
   return (tmpHi << 32) + tmpLo;
+}
+
+static double getDouble(SFSample *sample) {
+  double dbl;
+  uint64_t reg = getData64(sample);
+  memcpy(&dbl, &reg, 8);
+  return dbl;
 }
 
 static void skipBytes(SFSample *sample, uint32_t skip) {
@@ -3905,6 +3916,165 @@ static void readCountersSample(SFSample *sample, int expanded)
 }
 
 /*_________________---------------------------__________________
+  _________________       readRTMetric        __________________
+  -----------------___________________________------------------
+*/
+
+static void readRTMetric(SFSample *sample)
+{
+#define SFL_MAX_RTMETRIC_KEY_LEN 64
+#define SFL_MAX_RTMETRIC_VAL_LEN 255
+  char dsName[SFL_MAX_RTMETRIC_KEY_LEN];
+  uint32_t sampleLength;
+  uint32_t num_elements;
+  uint8_t *sampleStart;
+  sf_log(sample,"sampleType RTMETRIC\n");
+  sampleLength = getData32(sample);
+  sampleStart = (uint8_t *)sample->datap;
+  if(getString(sample, dsName, SFL_MAX_RTMETRIC_KEY_LEN) > 0) {
+    sf_log(sample, "rtmetric_datasource_name %s\n", dsName);
+  }
+  num_elements = getData32(sample);
+  {
+    uint32_t el;
+    for(el = 0; el < num_elements; el++) {
+      char mname[SFL_MAX_RTMETRIC_KEY_LEN];
+      uint32_t mtype;
+      char mvalstr[SFL_MAX_RTMETRIC_VAL_LEN];
+      uint32_t mvali32;
+      uint64_t mvali64;
+      float mvalfloat;
+      double mvaldouble;
+      getString(sample, mname, SFL_MAX_RTMETRIC_KEY_LEN);
+      mtype = getData32(sample);
+      switch(mtype) {
+      case 0:
+	getString(sample, mvalstr, SFL_MAX_RTMETRIC_VAL_LEN);
+	sf_log(sample, "rtmetric %s = (string) \"%s\"\n", mname, mvalstr);
+	break;
+      case 1:
+	mvali32 = getData32(sample);
+	sf_log(sample, "%s = (counter32) %u\n", mname, mvali32);
+	break;
+      case 2:
+	mvali64 = getData64(sample);
+	sf_log(sample, "%s = (counter64) %"PRIu64"\n", mname, mvali64);
+	break;
+      case 3:
+	mvali32 = getData32(sample);
+	sf_log(sample, "%s = (gauge32) %u\n", mname, mvali32);
+	break;
+      case 4:
+	mvali64 = getData64(sample);
+	sf_log(sample, "%s = (gauge64) %"PRIu64"\n", mname, mvali64);
+	break;
+      case 5:
+	mvalfloat = getFloat(sample);
+	sf_log(sample, "%s = (gaugefloat) %.3f\n", mname, mvalfloat);
+	break;
+      case 6:
+	mvaldouble = getDouble(sample);
+	sf_log(sample, "%s = (gaugefloat) %.3f\n", mname, mvaldouble);
+	break;
+      default:
+	sf_log(sample, "unknown_rtmetric_type %u\n", mtype);
+	SFABORT(sample, SF_ABORT_DECODE_ERROR);
+	break;
+      }
+    }
+  }
+  lengthCheck(sample, "rtmetric_sample", sampleStart, sampleLength);
+}
+
+/*_________________---------------------------__________________
+  _________________       readRTFlow          __________________
+  -----------------___________________________------------------
+*/
+
+static void readRTFlow(SFSample *sample)
+{
+  char dsName[SFL_MAX_RTMETRIC_KEY_LEN];
+  uint32_t sampleLength;
+  uint32_t num_elements;
+  uint8_t *sampleStart;
+  sf_log(sample,"sampleType RTFLOW\n");
+  sampleLength = getData32(sample);
+  sampleStart = (uint8_t *)sample->datap;
+  if(getString(sample, dsName, SFL_MAX_RTMETRIC_KEY_LEN) > 0) {
+    sf_log(sample, "rtflow_datasource_name %s\n", dsName);
+  }
+  sf_log_next32(sample, "rtflow_sampling_rate");
+  sf_log_next32(sample, "rtflow_sample_pool");
+  num_elements = getData32(sample);
+  {
+    uint32_t el;
+    for(el = 0; el < num_elements; el++) {
+      char fname[SFL_MAX_RTMETRIC_KEY_LEN];
+      uint32_t ftype;
+      char fvalstr[SFL_MAX_RTMETRIC_VAL_LEN];
+      uint32_t fvali32;
+      uint64_t fvali64;
+      float fvalfloat;
+      double fvaldouble;
+      SFLAddress fvaladdr;
+      char fvaladdrstr[64];
+      u_char fvalmac[6];
+      char fvalmacstr[32];
+      getString(sample, fname, SFL_MAX_RTMETRIC_KEY_LEN);
+      ftype = getData32(sample);
+      switch(ftype) {
+      case 0:
+	getString(sample, fvalstr, SFL_MAX_RTMETRIC_VAL_LEN);
+	sf_log(sample, "rtflow %s = (string) \"%s\"\n", fname, fvalstr);
+	break;
+      case 1:
+	memcpy(fvalmac, sample->datap, 6);
+	skipBytes(sample, 6);
+	printHex(fvalmac, 6, fvalmacstr, 32, 0, 100);
+	sf_log(sample, "rtflow %s = (mac) %s\n", fname, fvalmacstr);
+	break;
+      case 2:
+	fvaladdr.type = SFLADDRESSTYPE_IP_V4;
+	fvaladdr.address.ip_v4.addr = getData32_nobswap(sample);
+	sf_log(sample, "rtflow %s = (ip) %s\n",
+	       fname,
+	       printAddress(&fvaladdr,fvaladdrstr));
+	break;
+      case 3:
+	fvaladdr.type = SFLADDRESSTYPE_IP_V6;
+	memcpy(fvaladdr.address.ip_v6.addr, sample->datap, 16);
+	skipBytes(sample, 16);
+	sf_log(sample, "rtflow %s = (ip6) %s\n",
+	       fname,
+	       printAddress(&fvaladdr,fvaladdrstr));
+	break;
+      case 4:
+	fvali32 = getData32(sample);
+	sf_log(sample, "%s = (int32) %u\n", fname, fvali32);
+	break;
+      case 5:
+	fvali64 = getData64(sample);
+	sf_log(sample, "%s = (int64) %"PRIu64"\n", fname, fvali64);
+	break;
+      case 6:
+	fvalfloat = getFloat(sample);
+	sf_log(sample, "%s = (gaugefloat) %.3f\n", fname, fvalfloat);
+	break;
+      case 7:
+	fvaldouble = getDouble(sample);
+	sf_log(sample, "%s = (gaugefloat) %.3f\n", fname, fvaldouble);
+	break;
+      default:
+	sf_log(sample, "unknown_rtflow_type %u\n", ftype);
+	SFABORT(sample, SF_ABORT_DECODE_ERROR);
+	break;
+      }
+    }
+  }
+  lengthCheck(sample, "rtmetric_sample", sampleStart, sampleLength);
+}
+
+/*_________________---------------------------__________________
   _________________      readSFlowDatagram    __________________
   -----------------___________________________------------------
 */
@@ -3912,15 +4082,12 @@ static void readCountersSample(SFSample *sample, int expanded)
 static void readSFlowDatagram(SFSample *sample)
 {
   uint32_t samplesInPacket;
-  struct timeval now;
   char buf[51];
   
   /* log some datagram info */
-  now.tv_sec = (long)time(NULL);
-  now.tv_usec = 0;
   sf_log(sample,"datagramSourceIP %s\n", printAddress(&sample->sourceIP, buf));
   sf_log(sample,"datagramSize %u\n", sample->rawSampleLen);
-  sf_log(sample,"unixSecondsUTC %u\n", now.tv_sec);
+  sf_log(sample,"unixSecondsUTC %u\n", sample->readTimestamp);
   if(sample->pcapTimestamp) sf_log(sample,"pcapTimestamp %s\n", ctime(&sample->pcapTimestamp)); /* thanks to Richard Clayton for this bugfix */
 
   /* check the version */
@@ -3968,6 +4135,8 @@ static void readSFlowDatagram(SFSample *sample)
 	case SFLCOUNTERS_SAMPLE: readCountersSample(sample, NO); break;
 	case SFLFLOW_SAMPLE_EXPANDED: readFlowSample(sample, YES); break;
 	case SFLCOUNTERS_SAMPLE_EXPANDED: readCountersSample(sample, YES); break;
+	case SFLRTMETRIC: readRTMetric(sample); break;
+	case SFLRTFLOW: readRTFlow(sample); break;
 	default: skipTLVRecord(sample, sample->sampleType, getData32(sample), "sample"); break;
 	}
       }
@@ -4026,6 +4195,7 @@ static void receiveSFlowDatagram(SFSample *sample)
   }
   else {
     int exceptionVal;
+    sample->readTimestamp = (long)time(NULL);
     sf_log(sample,"startDatagram =================================\n");
     if((exceptionVal = setjmp(sample->env)) == 0)  {
       /* TRY */

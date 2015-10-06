@@ -653,7 +653,9 @@ enum SFL_sample_tag {
   SFLFLOW_SAMPLE = 1,              /* enterprise = 0 : format = 1 */
   SFLCOUNTERS_SAMPLE = 2,          /* enterprise = 0 : format = 2 */
   SFLFLOW_SAMPLE_EXPANDED = 3,     /* enterprise = 0 : format = 3 */
-  SFLCOUNTERS_SAMPLE_EXPANDED = 4  /* enterprise = 0 : format = 4 */
+  SFLCOUNTERS_SAMPLE_EXPANDED = 4, /* enterprise = 0 : format = 4 */
+  SFLRTMETRIC = ((4300 << 12) + 1002),
+  SFLRTFLOW = ((4300 << 12) + 1003)
 };
 
 typedef struct _SFLFlow_Pdu {
