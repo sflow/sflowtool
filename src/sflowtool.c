@@ -4308,7 +4308,8 @@ static int ipv4MappedAddress(SFLIPv6 *ipv6addr, SFLIPv4 *ip4addr) {
 static void readPacket(int soc)
 {
   struct sockaddr_in6 peer;
-  int alen, cc;
+  int cc;
+  socklen_t alen;
 #define MAX_PKT_SIZ 65536
   char buf[MAX_PKT_SIZ];
   alen = sizeof(peer);
