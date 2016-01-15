@@ -12,11 +12,10 @@ For more details on the sFlow data format, see http://www.sflow.org.
 
 # Build from sources
 
-	automake
-	autoconf
+	./boot.sh
 	./configure
 	make
-	make install
+	sudo make install
 
 (Start from ./configure if you downloaded a released version.)
 
