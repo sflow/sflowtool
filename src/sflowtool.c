@@ -4764,6 +4764,7 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -k                 -  keep going on non-signal errors rather than aborting\n");
   fprintf(ERROUT, "\n");
   fprintf(ERROUT, "=============== Advanced Tools ==============================================\n");
+  fprintf(ERROUT, "| sFlow-RT (real time)  - http://sflow-rt.com                               |\n");
   fprintf(ERROUT, "| sFlowTrend (FREE)     - http://www.inmon.com/products/sFlowTrend.php      |\n");
   fprintf(ERROUT, "| Traffic Sentinel      - http://www.inmon.com/support/sentinel_release.php |\n");
   fprintf(ERROUT, "=============================================================================\n");
