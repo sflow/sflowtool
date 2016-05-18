@@ -9,6 +9,7 @@ extern "C" {
 #define _CRT_SECURE_NO_WARNINGS 1
 
 #pragma  comment(lib, "wsock32.lib")
+#pragma  comment (lib, "Ws2_32.lib")
 
 #include "winsock2.h"
 #include "WS2tcpip.h"
@@ -36,7 +37,11 @@ extern "C" {
 #if defined(__cplusplus)
 #define strdup _strdup
 #define setmode _setmode
-#define snprintf _snprintf_s
+
+#if defined(_MSC_VER) && _MSC_VER<1900
+#  define snprintf _snprintf
+#endif
+
 #endif
 
 #if defined(__cplusplus)
