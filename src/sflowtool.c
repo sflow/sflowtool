@@ -201,6 +201,7 @@ typedef struct _SFConfig {
   EnumSFLFormat outputFormat;
   uint32_t tcpdumpHdrPad;
   uint8_t zeroPad[100];
+  uint32_t snaplen;
   int pcapSwap;
 
 #ifdef SPOOFSOURCE
@@ -1249,7 +1250,7 @@ static void writePcapHeader() {
   hdr.version_major = PCAP_VERSION_MAJOR;
   hdr.version_minor = PCAP_VERSION_MINOR;
   hdr.thiszone = 0;
-  hdr.snaplen = 128;
+  hdr.snaplen = sfConfig.snaplen;
   hdr.sigfigs = 0;
   hdr.linktype = DLT_EN10MB;
   if (fwrite((char *)&hdr, sizeof(hdr), 1, stdout) != 1) {
@@ -4784,6 +4785,7 @@ static void process_command_line(int argc, char *argv[])
 
   /* set defaults */
   sfConfig.sFlowInputPort = 6343;
+  sfConfig.snaplen = 65535;
 #ifdef WIN32
   sfConfig.listen4 = YES;
   sfConfig.listen6 = NO;
@@ -4828,6 +4830,7 @@ static void process_command_line(int argc, char *argv[])
 
     switch(in) {
     case 'p': sfConfig.sFlowInputPort = atoi(argv[arg++]); break;
+    case 'n': sfConfig.snaplen = atoi(argv[arg++]); break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
     case 'l': sfConfig.outputFormat = SFLFMT_LINE; break;
     case 'H': sfConfig.outputFormat = SFLFMT_CLF; break;
