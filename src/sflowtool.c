@@ -1271,8 +1271,11 @@ static void writePcapPacket(SFSample *sample) {
   struct pcap_pkthdr hdr;
   hdr.ts_sec = (uint32_t)time(NULL);
   hdr.ts_usec = 0;
-  hdr.len = sample->sampledPacketSize;
+  hdr.len = sample->headerLen;
   hdr.caplen = sample->headerLen;
+  if(sfConfig.snaplen < hdr.caplen) {
+    hdr.caplen = sfConfig.snaplen;
+  }
   if(sfConfig.removeContent && sample->offsetToPayload) {
     /* shorten the captured header to ensure no payload bytes are included */
     hdr.caplen = sample->offsetToPayload;
