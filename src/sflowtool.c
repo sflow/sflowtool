@@ -4747,6 +4747,7 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -x                 -  (remove all IPV4 content)\n");
   fprintf(ERROUT, "   -z pad             -  (extend tcpdump pkthdr with this many zeros\n");
   fprintf(ERROUT, "                          e.g. try -z 8 for tcpdump on Red Hat Linux 6.2)\n");
+  fprintf(ERROUT, "   -n snaplen         -  (adjust the pcap's maximum packet length. Default: 65535)\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"NetFlow output:\n");
   fprintf(ERROUT, "   -c hostname_or_IP  -  (netflow collector host)\n");
