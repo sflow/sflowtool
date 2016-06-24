@@ -4822,6 +4822,7 @@ static void process_command_line(int argc, char *argv[])
     case '?':
     case 'h': break;
     case 'p':
+    case 'n':
     case 'r':
     case 'z':
     case 'c':
