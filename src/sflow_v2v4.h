@@ -1,8 +1,8 @@
 /* Copyright (c) 2002-2011 InMon Corp. Licensed under the terms of the InMon sFlow licence: */
 /* http://www.inmon.com/technology/sflowlicense.txt */
 
-#ifndef SFLOWTOOL_H
-#define SFLOWTOOL_H 1
+#ifndef SFLOW_V2V4_H
+#define SFLOW_V2V4_H 1
 
 #if defined(__cplusplus)
 extern "C" {
@@ -433,4 +433,4 @@ typedef struct _INMSample_datagram_hdr {
 }  /* extern "C" */
 #endif
 
-#endif /* SFLOWTOOL_H */
+#endif /* SFLOW_V2V4_H */

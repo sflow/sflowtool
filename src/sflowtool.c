@@ -38,7 +38,7 @@ extern "C" {
 #endif
 
 #include "sflow.h" /* sFlow v5 */
-#include "sflowtool.h" /* sFlow v2/4 */
+#include "sflow_v2v4.h" /* sFlow v2/4 */
 
 /* If the platform is Linux, enable the source-spoofing feature too. */
 #ifdef linux
