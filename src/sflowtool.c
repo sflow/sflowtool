@@ -2485,6 +2485,7 @@ static void readFlowSample_APP(SFSample *sample)
   char operation[SFLAPP_MAX_OPERATION_LEN];
   char attributes[SFLAPP_MAX_ATTRIBUTES_LEN];
   char status[SFLAPP_MAX_STATUS_LEN];
+  uint32_t status32;
 
   sf_log(sample,"flowSampleType applicationOperation\n");
 
@@ -2503,7 +2504,11 @@ static void readFlowSample_APP(SFSample *sample)
   sf_log_next64(sample, "request_bytes");
   sf_log_next64(sample, "response_bytes");
   sf_log_next32(sample, "duration_uS");
-  sf_log(sample,"status %s\n", SFL_APP_STATUS_names[getData32(sample)]);
+  status32 = getData32(sample);
+  if(status32 >= SFLAPP_NUM_STATUS_CODES)
+    sf_log(sample,"status <out-of-range=%u>\n", status32);
+  else
+    sf_log(sample,"status %s\n", SFL_APP_STATUS_names[status32]);
 }
 
 

@@ -510,7 +510,8 @@ typedef enum {
   SFLAPP_NOT_IMPLEMENTED = 7,
   SFLAPP_NOT_FOUND       = 8,
   SFLAPP_UNAVAILABLE     = 9,
-  SFLAPP_UNAUTHORIZED    = 10
+  SFLAPP_UNAUTHORIZED    = 10,
+  SFLAPP_NUM_STATUS_CODES
 } EnumSFLAPPStatus;
 
   static const char *SFL_APP_STATUS_names[] = { "SUCCESS",
