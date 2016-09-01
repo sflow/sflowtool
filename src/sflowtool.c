@@ -201,6 +201,7 @@ typedef struct _SFConfig {
   EnumSFLFormat outputFormat;
   uint32_t tcpdumpHdrPad;
   uint8_t zeroPad[100];
+  uint32_t snaplen;
   int pcapSwap;
 
 #ifdef SPOOFSOURCE
@@ -1249,7 +1250,7 @@ static void writePcapHeader() {
   hdr.version_major = PCAP_VERSION_MAJOR;
   hdr.version_minor = PCAP_VERSION_MINOR;
   hdr.thiszone = 0;
-  hdr.snaplen = 128;
+  hdr.snaplen = sfConfig.snaplen;
   hdr.sigfigs = 0;
   hdr.linktype = DLT_EN10MB;
   if (fwrite((char *)&hdr, sizeof(hdr), 1, stdout) != 1) {
@@ -1270,8 +1271,11 @@ static void writePcapPacket(SFSample *sample) {
   struct pcap_pkthdr hdr;
   hdr.ts_sec = (uint32_t)time(NULL);
   hdr.ts_usec = 0;
-  hdr.len = sample->sampledPacketSize;
+  hdr.len = sample->headerLen;
   hdr.caplen = sample->headerLen;
+  if(sfConfig.snaplen < hdr.caplen) {
+    hdr.caplen = sfConfig.snaplen;
+  }
   if(sfConfig.removeContent && sample->offsetToPayload) {
     /* shorten the captured header to ensure no payload bytes are included */
     hdr.caplen = sample->offsetToPayload;
@@ -4748,6 +4752,7 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -x                 -  (remove all IPV4 content)\n");
   fprintf(ERROUT, "   -z pad             -  (extend tcpdump pkthdr with this many zeros\n");
   fprintf(ERROUT, "                          e.g. try -z 8 for tcpdump on Red Hat Linux 6.2)\n");
+  fprintf(ERROUT, "   -n snaplen         -  (adjust the pcap's maximum packet length. Default: 65535)\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"NetFlow output:\n");
   fprintf(ERROUT, "   -c hostname_or_IP  -  (netflow collector host)\n");
@@ -4789,6 +4794,7 @@ static void process_command_line(int argc, char *argv[])
 
   /* set defaults */
   sfConfig.sFlowInputPort = 6343;
+  sfConfig.snaplen = 65535;
 #ifdef WIN32
   sfConfig.listen4 = YES;
   sfConfig.listen6 = NO;
@@ -4822,6 +4828,7 @@ static void process_command_line(int argc, char *argv[])
     case '?':
     case 'h': break;
     case 'p':
+    case 'n':
     case 'r':
     case 'z':
     case 'c':
@@ -4833,6 +4840,7 @@ static void process_command_line(int argc, char *argv[])
 
     switch(in) {
     case 'p': sfConfig.sFlowInputPort = atoi(argv[arg++]); break;
+    case 'n': sfConfig.snaplen = atoi(argv[arg++]); break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
     case 'l': sfConfig.outputFormat = SFLFMT_LINE; break;
     case 'H': sfConfig.outputFormat = SFLFMT_CLF; break;
