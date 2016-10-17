@@ -382,6 +382,32 @@ typedef struct _SFLExtended_aggregation {
   uint32_t num_pdus;
   struct _SFFlow_Pdu *pdus;
 } SFLExtended_aggregation;
+/* TCP connection state */
+/* Based on struct tcp_info in /usr/include/linux/tcp.h */
+/* opaque = flow_data; enterprise=0; format=2209 */
+
+typedef enum  {
+  PKTDIR_unknown  = 0,
+  PKTDIR_received = 1,
+  PKTDIR_sent     = 2
+} EnumPktDirection;
+
+typedef struct  _SFLExtended_TCP_info {
+  uint32_t dirn;        /* EnumPktDirection: Sampled packet direction */
+  uint32_t snd_mss;     /* Cached effective mss, not including SACKS */
+  uint32_t rcv_mss;     /* Max. recv. segment size */
+  uint32_t unacked;     /* Packets which are "in flight" */
+  uint32_t lost;        /* Lost packets */
+  uint32_t retrans;     /* Retransmitted packets */
+  uint32_t pmtu;        /* Last pmtu seen by socket */
+  uint32_t rtt;         /* smoothed RTT (microseconds) */
+  uint32_t rttvar;      /* RTT variance (microseconds) */
+  uint32_t snd_cwnd;    /* Sending congestion window */
+  uint32_t reordering;  /* Reordering */
+  uint32_t min_rtt;     /* Minimum RTT (microseconds) */
+} SFLExtended_TCP_info;
+
+#define  XDRSIZ_SFLEXTENDED_TCP_INFO 48
 
 /* Extended socket information,
    Must be filled in for all application transactions associated with a network socket
@@ -608,6 +634,7 @@ enum SFLFlow_type_tag {
   SFLFLOW_APP_ACTOR_INIT   = 2204, /* initiator */
   SFLFLOW_APP_ACTOR_TGT    = 2205, /* target */
   SFLFLOW_HTTP2            = 2206,
+  SFLFLOW_EX_TCP_INFO      = 2209,
 };
 
 typedef union _SFLFlow_type {

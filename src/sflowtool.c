@@ -184,6 +184,9 @@ typedef struct _SFForwardingTarget6 {
 
 typedef enum { SFLFMT_FULL=0, SFLFMT_PCAP, SFLFMT_LINE, SFLFMT_NETFLOW, SFLFMT_FWD, SFLFMT_CLF, SFLFMT_SCRIPT } EnumSFLFormat;
 
+#define SA_MAX_PCAP_HDR_PAD 100
+#define SA_MAX_PCAP_PKT 8192
+
 typedef struct _SFConfig {
   /* sflow(R) options */
   uint16_t sFlowInputPort;
@@ -200,7 +203,7 @@ typedef struct _SFConfig {
   char *writePcapFile;
   EnumSFLFormat outputFormat;
   uint32_t tcpdumpHdrPad;
-  uint8_t zeroPad[100];
+  uint8_t zeroPad[SA_MAX_PCAP_HDR_PAD];
   int pcapSwap;
 
 #ifdef SPOOFSOURCE
@@ -1265,7 +1268,7 @@ static void writePcapHeader() {
 */
 
 static void writePcapPacket(SFSample *sample) {
-  char buf[2048];
+  char buf[SA_MAX_PCAP_PKT];
   int bytes = 0;
   struct pcap_pkthdr hdr;
   hdr.ts_sec = (uint32_t)time(NULL);
@@ -2680,6 +2683,35 @@ static void readExtendedVNI(SFSample *sample, char *prefix)
   sf_log(sample,"%sVNI %u\n", prefix, vni);
 }
 
+/*_________________----------------------------__________________
+  _________________    readExtendedTCPInfo     __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedTCPInfo(SFSample *sample)
+{
+  char *direction;
+  EnumPktDirection dirn = getData32(sample);
+  switch(dirn) {
+  case PKTDIR_unknown: direction = "unknown"; break;
+  case PKTDIR_received: direction = "received"; break;
+  case PKTDIR_sent: direction = "sent"; break;
+  default: direction = "<bad value>"; break;
+  }
+  sf_log(sample, "tcpinfo_direction %s\n", direction);
+  sf_log_next32(sample, "tcpinfo_send_mss");
+  sf_log_next32(sample, "tcpinfo_receive_mss");
+  sf_log_next32(sample, "tcpinfo_unacked_pkts");
+  sf_log_next32(sample, "tcpinfo_lost_pkts");
+  sf_log_next32(sample, "tcpinfo_retrans_pkts");
+  sf_log_next32(sample, "tcpinfo_path_mtu");
+  sf_log_next32(sample, "tcpinfo_rtt_uS");
+  sf_log_next32(sample, "tcpinfo_rtt_uS_var");
+  sf_log_next32(sample, "tcpinfo_send_congestion_win");
+  sf_log_next32(sample, "tcpinfo_reordering");
+  sf_log_next32(sample, "tcpinfo_rtt_uS_min");
+}
+
 /*_________________---------------------------__________________
   _________________    readFlowSample_v2v4    __________________
   -----------------___________________________------------------
@@ -2896,6 +2928,7 @@ static void readFlowSample(SFSample *sample, int expanded)
       case SFLFLOW_EX_DECAP_IN: readExtendedDecap(sample, "in_"); break;
       case SFLFLOW_EX_VNI_OUT: readExtendedVNI(sample, "out_"); break;
       case SFLFLOW_EX_VNI_IN: readExtendedVNI(sample, "in_"); break;
+      case SFLFLOW_EX_TCP_INFO: readExtendedTCPInfo(sample); break;
       default: skipTLVRecord(sample, tag, length, "flow_sample_element"); break;
       }
       lengthCheck(sample, "flow_sample_element", start, length);
@@ -4483,7 +4516,7 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
 
 static int readPcapPacket(FILE *file)
 {
-  uint8_t buf[2048];
+  uint8_t buf[SA_MAX_PCAP_PKT];
   struct pcap_pkthdr hdr;
   SFSample sample;
   int skipBytes = 0;
@@ -4843,7 +4876,13 @@ static void process_command_line(int argc, char *argv[])
 	memcpy(sfConfig.readPcapFileName, argv[arg++], len_str);
         break;
     case 'x': sfConfig.removeContent = YES; break;
-    case 'z': sfConfig.tcpdumpHdrPad = atoi(argv[arg++]); break;
+    case 'z':
+      sfConfig.tcpdumpHdrPad = atoi(argv[arg++]);
+      if(sfConfig.tcpdumpHdrPad > SA_MAX_PCAP_HDR_PAD) {
+	fprintf(ERROUT, "max value for -z <pad> is %u\n", SA_MAX_PCAP_HDR_PAD);
+	exit(-10);
+      }
+      break;
     case 'c':
       {
 	struct hostent *ent = gethostbyname(argv[arg++]);
