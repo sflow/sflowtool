@@ -166,7 +166,6 @@ struct pcap_pkthdr {
    *   int index;
    *   unsigned short protocol;
    *   unsigned char pkt_type;
-   * To pad the header with zeros, use the tcpdumpHdrPad option.
    */
 };
 
@@ -184,8 +183,8 @@ typedef struct _SFForwardingTarget6 {
 
 typedef enum { SFLFMT_FULL=0, SFLFMT_PCAP, SFLFMT_LINE, SFLFMT_NETFLOW, SFLFMT_FWD, SFLFMT_CLF, SFLFMT_SCRIPT } EnumSFLFormat;
 
-#define SA_MAX_PCAP_HDR_PAD 100
-#define SA_MAX_PCAP_PKT 8192
+#define SA_MAX_PCAP_PKT 65536
+#define SA_MAX_SFLOW_PKT_SIZ 65536
 
 typedef struct _SFConfig {
   /* sflow(R) options */
@@ -202,8 +201,6 @@ typedef struct _SFConfig {
   struct pcap_file_header readPcapHdr;
   char *writePcapFile;
   EnumSFLFormat outputFormat;
-  uint32_t tcpdumpHdrPad;
-  uint8_t zeroPad[SA_MAX_PCAP_HDR_PAD];
   int pcapSwap;
 
 #ifdef SPOOFSOURCE
@@ -1252,7 +1249,7 @@ static void writePcapHeader() {
   hdr.version_major = PCAP_VERSION_MAJOR;
   hdr.version_minor = PCAP_VERSION_MINOR;
   hdr.thiszone = 0;
-  hdr.snaplen = 128;
+  hdr.snaplen = SA_MAX_PCAP_PKT;
   hdr.sigfigs = 0;
   hdr.linktype = DLT_EN10MB;
   if (fwrite((char *)&hdr, sizeof(hdr), 1, stdout) != 1) {
@@ -1284,10 +1281,6 @@ static void writePcapPacket(SFSample *sample) {
      to another process and the reader expects it all to appear at once... */
   memcpy(buf, &hdr, sizeof(hdr));
   bytes = sizeof(hdr);
-  if(sfConfig.tcpdumpHdrPad > 0) {
-    memcpy(buf+bytes, sfConfig.zeroPad, sfConfig.tcpdumpHdrPad);
-    bytes += sfConfig.tcpdumpHdrPad;
-  }
   memcpy(buf+bytes, sample->header, hdr.caplen);
   bytes += hdr.caplen;
 
@@ -4348,11 +4341,10 @@ static void readPacket(int soc)
   struct sockaddr_in6 peer;
   int cc;
   socklen_t alen;
-#define MAX_PKT_SIZ 65536
-  char buf[MAX_PKT_SIZ];
+  char buf[SA_MAX_SFLOW_PKT_SIZ];
   alen = sizeof(peer);
   memset(&peer, 0, sizeof(peer));
-  cc = recvfrom(soc, buf, MAX_PKT_SIZ, 0, (struct sockaddr *)&peer, &alen);
+  cc = recvfrom(soc, buf, SA_MAX_SFLOW_PKT_SIZ, 0, (struct sockaddr *)&peer, &alen);
   if(cc <= 0) {
     fprintf(ERROUT, "recvfrom() failed, %s\n", strerror(errno));
     return;
@@ -4525,12 +4517,6 @@ static int readPcapPacket(FILE *file)
     if(feof(file)) return 0;
     fprintf(ERROUT, "unable to read pcap packet header from %s : %s\n", sfConfig.readPcapFileName, strerror(errno));
     exit(-32);
-  }
-  if(sfConfig.tcpdumpHdrPad > 0) {
-    if(fread(buf, sfConfig.tcpdumpHdrPad, 1, file) != 1) {
-      fprintf(ERROUT, "unable to read pcap header pad (%d bytes)\n", sfConfig.tcpdumpHdrPad);
-      exit(-33);
-    }
   }
 
   if(sfConfig.pcapSwap) {
@@ -4779,8 +4765,6 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -t                 -  (output in binary tcpdump(1) format)\n");
   fprintf(ERROUT, "   -r file            -  (read binary tcpdump(1) format)\n");
   fprintf(ERROUT, "   -x                 -  (remove all IPV4 content)\n");
-  fprintf(ERROUT, "   -z pad             -  (extend tcpdump pkthdr with this many zeros\n");
-  fprintf(ERROUT, "                          e.g. try -z 8 for tcpdump on Red Hat Linux 6.2)\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"NetFlow output:\n");
   fprintf(ERROUT, "   -c hostname_or_IP  -  (netflow collector host)\n");
@@ -4876,13 +4860,6 @@ static void process_command_line(int argc, char *argv[])
 	memcpy(sfConfig.readPcapFileName, argv[arg++], len_str);
         break;
     case 'x': sfConfig.removeContent = YES; break;
-    case 'z':
-      sfConfig.tcpdumpHdrPad = atoi(argv[arg++]);
-      if(sfConfig.tcpdumpHdrPad > SA_MAX_PCAP_HDR_PAD) {
-	fprintf(ERROUT, "max value for -z <pad> is %u\n", SA_MAX_PCAP_HDR_PAD);
-	exit(-10);
-      }
-      break;
     case 'c':
       {
 	struct hostent *ent = gethostbyname(argv[arg++]);
