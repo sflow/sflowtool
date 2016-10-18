@@ -1,3 +1,5 @@
+Oct-18-2016:
+       3.39: - print SFP optical counters
 Oct-17-2016:
        3.38: - fix pcap_file_header.snaplen
 	     - drop "-z pad" option

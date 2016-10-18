@@ -3808,6 +3808,34 @@ static void readCounters_LACP(SFSample *sample)
   sf_log_next32(sample, "markerResponsePDUsTx");
 }
 
+/*_________________----------------------------__________________
+  _________________  readCounters_SFP          __________________
+  -----------------____________________________------------------
+*/
+
+static void readCounters_SFP(SFSample *sample)
+{
+  uint32_t num_lanes,ll;
+  sf_log_next32(sample, "sfp_module_id");
+  sf_log_next32(sample, "sfp_module_total_lanes");
+  sf_log_next32(sample, "sfp_module_supply_voltage");
+  sf_log_next32(sample, "sfp_module_temperature");
+  num_lanes = getData32(sample);
+  sf_log(sample, "sfp_module_active_lanes %u\n", num_lanes);
+  for(ll=0; ll < num_lanes; ll++) {
+    sf_log(sample, "sfp_lane_index.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_tx_bias_current_uA.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_tx_power_uW.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_tx_power_min_uW.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_tx_power_max_uW.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_tx_wavelength_nM.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_rx_power_uW.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_rx_power_min_uW.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_rx_power_max_uW.%u %u\n", ll, getData32(sample));
+    sf_log(sample, "sfp_lane_rx_wavelength_nM.%u %u\n", ll, getData32(sample));
+  }
+}
+
 /*_________________---------------------------__________________
   _________________  readCountersSample_v2v4  __________________
   -----------------___________________________------------------
@@ -3906,6 +3934,7 @@ static void readCountersSample(SFSample *sample, int expanded)
       case SFLCOUNTERS_VLAN: readCounters_vlan(sample); break;
       case SFLCOUNTERS_80211: readCounters_80211(sample); break;
       case SFLCOUNTERS_LACP: readCounters_LACP(sample); break;
+      case SFLCOUNTERS_SFP: readCounters_SFP(sample); break;
       case SFLCOUNTERS_PROCESSOR: readCounters_processor(sample); break;
       case SFLCOUNTERS_RADIO: readCounters_radio(sample); break;
       case SFLCOUNTERS_PORTNAME: readCounters_portName(sample); break;
