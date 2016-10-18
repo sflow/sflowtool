@@ -1,3 +1,7 @@
+Oct-17-2016:
+       3.38: - fix pcap_file_header.snaplen
+	     - drop "-z pad" option
+	     - add "tcpinfo" struct
 Oct-5-2015:
        3.37: - print rtmetric and rtflow samples
              - include timestamp in grep-friendly (-g) output
