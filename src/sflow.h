@@ -1440,6 +1440,15 @@ typedef struct _SFLLACP_counters {
 
 #define XDRSIZ_LACP_COUNTERS 56
 
+/* openflow port */
+/* opaque = counter_data; enterprise = 0; format = 1004 */
+typedef struct {
+  uint64_t datapath_id;
+  uint32_t port_no;
+} SFLOFPort;
+
+#define XDRSIZ_OFPORT 12
+
 /* port name */
 /* opaque = counter_data; enterprise = 0; format = 1005 */
 typedef struct {
@@ -1489,6 +1498,7 @@ enum SFLCounters_type_tag {
   SFLCOUNTERS_SFP          = 10,
   SFLCOUNTERS_PROCESSOR    = 1001,
   SFLCOUNTERS_RADIO        = 1002,
+  SFLCOUNTERS_OFPORT       = 1004,
   SFLCOUNTERS_PORTNAME     = 1005,
   SFLCOUNTERS_HOST_HID     = 2000, /* host id */
   SFLCOUNTERS_ADAPTORS     = 2001, /* host adaptors */

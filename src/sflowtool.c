@@ -3135,7 +3135,19 @@ static void readCounters_radio(SFSample *sample)
   sf_log_next32(sample, "radio_on_channel_time");
   sf_log_next32(sample, "radio_on_channel_busy_time");
 }
- 
+
+/*_________________---------------------------__________________
+  _________________  readCounters_OFPort      __________________
+  -----------------___________________________------------------
+*/
+
+static void readCounters_OFPort(SFSample *sample)
+{
+  uint64_t dpid = getData64(sample);
+  sf_log(sample, "openflow_datapath_id %016"PRIx64"\n", dpid);
+  sf_log_next32(sample, "openflow_port");
+}
+
 /*_________________---------------------------__________________
   _________________  readCounters_portName    __________________
   -----------------___________________________------------------
@@ -3937,6 +3949,7 @@ static void readCountersSample(SFSample *sample, int expanded)
       case SFLCOUNTERS_SFP: readCounters_SFP(sample); break;
       case SFLCOUNTERS_PROCESSOR: readCounters_processor(sample); break;
       case SFLCOUNTERS_RADIO: readCounters_radio(sample); break;
+      case SFLCOUNTERS_OFPORT: readCounters_OFPort(sample); break;
       case SFLCOUNTERS_PORTNAME: readCounters_portName(sample); break;
       case SFLCOUNTERS_HOST_HID: readCounters_host_hid(sample); break;
       case SFLCOUNTERS_ADAPTORS: readCounters_adaptors(sample); break;
