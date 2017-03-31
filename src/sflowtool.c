@@ -3162,6 +3162,21 @@ static void readCounters_portName(SFSample *sample)
 }
 
 /*_________________---------------------------__________________
+  _________________  readCounters_OVSDP       __________________
+  -----------------___________________________------------------
+*/
+
+static void readCounters_OVSDP(SFSample *sample)
+{
+  sf_log_next32(sample, "OVS_dp_hits");
+  sf_log_next32(sample, "OVS_dp_misses");
+  sf_log_next32(sample, "OVS_dp_lost");
+  sf_log_next32(sample, "OVS_dp_mask_hits");
+  sf_log_next32(sample, "OVS_dp_flows");
+  sf_log_next32(sample, "OVS_dp_masks");
+}
+
+/*_________________---------------------------__________________
   _________________  readCounters_host_hid    __________________
   -----------------___________________________------------------
 */
@@ -3978,6 +3993,7 @@ static void readCountersSample(SFSample *sample, int expanded)
       case SFLCOUNTERS_APP_RESOURCE: readCounters_APP_RESOURCE(sample); break;
       case SFLCOUNTERS_APP_WORKERS: readCounters_APP_WORKERS(sample); break;
       case SFLCOUNTERS_VDI: readCounters_VDI(sample); break;
+      case SFLCOUNTERS_OVSDP: readCounters_OVSDP(sample); break;
       default: skipTLVRecord(sample, tag, length, "counters_sample_element"); break;
       }
       lengthCheck(sample, "counters_sample_element", start, length);

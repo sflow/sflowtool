@@ -1457,6 +1457,18 @@ typedef struct {
 
 #define SFL_MAX_PORTNAME_LEN 255
 
+/* OVS datapath stats */
+typedef struct _SFLOVSDP_counters {
+  uint32_t n_hit;
+  uint32_t n_missed;
+  uint32_t n_lost;
+  uint32_t n_mask_hit;
+  uint32_t n_flows;
+  uint32_t n_masks;
+} SFLOVSDP_counters;
+
+#define XDRSIZE_OVSDP 24
+
 /* Optical SFP/QSFP metrics */
 /* opaque = counter_data; enterprise = 0; format = 10 */
 
@@ -1525,6 +1537,7 @@ enum SFLCounters_type_tag {
   SFLCOUNTERS_MEMCACHE2     = 2204, /* memcached */
   SFLCOUNTERS_VDI           = 2205,
   SFLCOUNTERS_APP_WORKERS   = 2206,
+  SFLCOUNTERS_OVSDP         = 2207,
   SFLCOUNTERS_HOST_GPU_NVML = (5703 << 12) + 1, /* = 23359489 */
   SFLCOUNTERS_BCM_TABLES    = (4413 << 12) + 3,
 };
@@ -1567,6 +1580,7 @@ typedef union _SFLCounters_type {
   SFLLACP_counters lacp;
   SFLPortName portName;
   SFLSFP_counters sfp;
+  SFLOVSDP_counters ovsdp;
 } SFLCounters_type;
 
 typedef struct _SFLCounters_sample_element {
