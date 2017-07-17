@@ -195,6 +195,7 @@ typedef struct _SFConfig {
   int netFlowOutputSocket;
   uint16_t netFlowPeerAS;
   int disableNetFlowScale;
+  uint16_t netFlowVersion;
   /* tcpdump options */
   char *readPcapFileName;
   FILE *readPcapFile;
@@ -451,6 +452,166 @@ typedef struct _NFFlowPkt5 {
   NFFlowHdr5 hdr;
   NFFlow5 flow; /* normally an array, but here we always send just 1 at a time */
 } NFFlowPkt5;
+
+/* Cisco NetFlow version 9 format */
+
+/* NetFlow v9/ipfix element ids */
+
+#define ID_SRC_IP 8
+#define ID_DST_IP 12
+#define ID_NEXT_HOP 15
+#define ID_IF_IN 10
+#define ID_IF_OUT 14
+#define ID_PACKETS 2
+#define ID_BYTES 1
+#define ID_FIRST_SWITCHED 22
+#define ID_LAST_SWITCHED 21
+#define ID_SRC_PORT 7
+#define ID_DST_PORT 11
+#define ID_TCP_FLAGS 6
+#define ID_PROTOCOL 4
+#define ID_TOS 5
+#define ID_SRC_AS 16
+#define ID_DST_AS 17
+#define ID_SRC_MASK 9
+#define ID_DST_MASK 13
+#define ID_SAMPLING_INTERVAL 34
+
+/* NetFlow v9/ipfix element sizes */
+
+#define SZ_SRC_IP 4
+#define SZ_DST_IP 4
+#define SZ_NEXT_HOP 4
+#define SZ_IF_IN 4
+#define SZ_IF_OUT 4
+#define SZ_PACKETS 4
+#define SZ_BYTES 4
+#define SZ_FIRST_SWITCHED 4
+#define SZ_LAST_SWITCHED 4
+#define SZ_SRC_PORT 2
+#define SZ_DST_PORT 2
+#define SZ_TCP_FLAGS 1
+#define SZ_PROTOCOL 1
+#define SZ_TOS 1
+#define SZ_SRC_AS 4
+#define SZ_DST_AS 4
+#define SZ_SRC_MASK 1
+#define SZ_DST_MASK 1
+#define SZ_SAMPLING_INTERVAL 4
+
+/* NetFlow v9/ipfix element type */
+
+typedef struct _NFField9 {
+  uint16_t id;
+  uint16_t sz;
+} __attribute__ ((packed)) NFField9;
+
+/* NetFlow v9/ipfix (id, sz) pairs for each element */
+
+static const NFField9 nfField9[] = {
+ { ID_SRC_IP, SZ_SRC_IP },
+ { ID_DST_IP, SZ_DST_IP },
+ { ID_NEXT_HOP, SZ_NEXT_HOP },
+ { ID_IF_IN, SZ_IF_IN },
+ { ID_IF_OUT, SZ_IF_OUT },
+ { ID_PACKETS, SZ_PACKETS },
+ { ID_BYTES, SZ_BYTES },
+ { ID_FIRST_SWITCHED, SZ_FIRST_SWITCHED },
+ { ID_LAST_SWITCHED, SZ_LAST_SWITCHED },
+ { ID_SRC_PORT, SZ_SRC_PORT },
+ { ID_DST_PORT, SZ_DST_PORT },
+ { ID_TCP_FLAGS, SZ_TCP_FLAGS },
+ { ID_PROTOCOL, SZ_PROTOCOL },
+ { ID_TOS, SZ_TOS },
+ { ID_SRC_AS, SZ_SRC_AS },
+ { ID_DST_AS, SZ_DST_AS },
+ { ID_SRC_MASK, SZ_SRC_MASK },
+ { ID_DST_MASK, SZ_DST_MASK },
+ { ID_SAMPLING_INTERVAL, SZ_SAMPLING_INTERVAL }
+ };
+
+/* The NetFlow v9 flow will be shaped similarly to v5,
+ * but we move sampling interval from the v5 header into
+ * the flow dataset and expand the interface field widths. */
+
+typedef struct _NFFlow9 {
+  uint32_t srcIP;
+  uint32_t dstIP;
+  uint32_t nextHop;
+  uint32_t if_in;
+  uint32_t if_out;
+  uint32_t packets;
+  uint32_t bytes;
+  uint32_t firstTime;
+  uint32_t lastTime;
+  uint16_t srcPort;
+  uint16_t dstPort;
+  uint8_t tcpFlags;
+  uint8_t ipProto;
+  uint8_t ipTos;
+  uint32_t srcAS;
+  uint32_t dstAS;
+  uint8_t srcMask;
+  uint8_t dstMask;
+  uint32_t samplingInterval;
+} __attribute__ ((packed)) NFFlow9;
+
+
+/* NetFlow v9 template flowset */
+
+typedef struct _NFTemplateFlowSet9 {
+  uint16_t setId;
+  uint16_t length;
+  uint16_t templateId;
+  uint16_t fieldCount;
+  NFField9 field[19];
+} __attribute__ ((packed)) NFTemplateFlowSet9;
+
+
+/* NetFlow v9 data flowset */
+
+typedef struct _NFDataFlowSet9 {
+  uint16_t templateId;
+  uint16_t length;
+  NFFlow9 flow;
+} __attribute__ ((packed)) NFDataFlowSet9;
+
+
+/* NetFlow v9 flow packet header */
+
+typedef struct _NFFlowHeader9 {
+  uint16_t version;
+  uint16_t count;
+  uint32_t sysUpTime;
+  uint32_t unixSeconds;
+  uint32_t flowSequence;
+  uint32_t sourceId;
+} __attribute__ ((packed)) NFFlowHeader9;
+
+
+/* NetFlow v9 flow packet */
+
+typedef struct _NFFlowPkt9 {
+  NFFlowHeader9 hdr;
+  NFTemplateFlowSet9 tmpl;
+  NFDataFlowSet9 data;
+} __attribute__ ((packed)) NFFlowPkt9;
+
+
+/* NetFLow packet can be either v5 or v9 */
+
+typedef struct _NFFlowPkt {
+  union {
+    NFFlowPkt5 v5;
+    NFFlowPkt9 v9;
+  };
+} __attribute__ ((packed)) NFFlowPkt;
+
+
+/* NetFlow functions to send datagrams */
+static void sendNetFlowV5Datagram(SFSample *sample);
+static void sendNetFlowV9Datagram(SFSample *sample);
+static void (*sendNetFlowDatagram)(SFSample *sample) = sendNetFlowV5Datagram;
 
 static void readFlowSample_header(SFSample *sample);
 static void readFlowSample(SFSample *sample, int expanded);
@@ -1363,11 +1524,31 @@ static void openNetFlowSocket_spoof()
   -----------------___________________________------------------
 */
 
-static void sendNetFlowDatagram_spoof(SFSample *sample, NFFlowPkt5 *pkt)
+static void sendNetFlowDatagram_spoof(SFSample *sample, NFFlowPkt *pkt)
 {
-  uint16_t packetLen = sizeof(*pkt) + sizeof(struct myiphdr) + sizeof(struct myudphdr);
-  /* copy the data into the send packet */
-  memcpy(sfConfig.sendPkt.data, (char *)pkt, sizeof(*pkt));
+  /* Grab the netflow version from packet */
+  uint16_t version = ntohs(*((uint16_t *)pkt));
+  uint16_t packetLen = 0;
+
+  /* Copy data into send packet */
+  switch(version) {
+  case 5:
+    {
+      packetLen = sizeof(NFFlowPkt5) + sizeof(struct myiphdr) + sizeof(struct myudphdr);
+      memcpy(sfConfig.sendPkt.data, (char *)pkt, sizeof(NFFlowPkt5));
+    }
+    break;
+  case 9:
+    {
+      packetLen = sizeof(NFFlowPkt9) + sizeof(struct myiphdr) + sizeof(struct myudphdr);
+      memcpy(sfConfig.sendPkt.data, (char *)pkt, sizeof(NFFlowPkt9));
+    }
+    break;
+  default:
+    /* unsupported version */
+    return;
+  }
+
   /* increment the ip-id */
   sfConfig.sendPkt.ip.id = htons(++sfConfig.ipid);
   /* set the length fields in the ip and udp headers */
@@ -1466,13 +1647,13 @@ static void openNetFlowSocket()
 }
 
 /*_________________---------------------------__________________
-  _________________   sendNetFlowDatagram     __________________
+  _________________   sendNetFlowV5Datagram   __________________
   -----------------___________________________------------------
 */
 
 static int NFFlowSequenceNo = 0;
 
-static void sendNetFlowDatagram(SFSample *sample)
+static void sendNetFlowV5Datagram(SFSample *sample)
 {
   NFFlowPkt5 pkt;
   uint32_t now = (uint32_t)time(NULL);
@@ -1535,7 +1716,7 @@ static void sendNetFlowDatagram(SFSample *sample)
 
 #ifdef SPOOFSOURCE
   if(sfConfig.spoofSource) {
-    sendNetFlowDatagram_spoof(sample, &pkt);
+    sendNetFlowDatagram_spoof(sample, (NFFlowPkt *)&pkt);
     return;
   }
 #endif /* SPOOFSOURCE */
@@ -1543,6 +1724,102 @@ static void sendNetFlowDatagram(SFSample *sample)
   /* send non-blocking */
   send(sfConfig.netFlowOutputSocket, (char *)&pkt, sizeof(pkt), 0);
 
+}
+
+/*_________________---------------------------__________________
+  _________________   sendNetFlowV9Datagram   __________________
+  -----------------___________________________------------------
+*/
+
+static void sendNetFlowV9Datagram(SFSample *sample)
+{
+  NFFlowPkt9 pkt;
+
+  uint32_t now = (uint32_t)time(NULL);
+  uint32_t bytes;
+  uint16_t i = 0;
+  const size_t fieldCount = sizeof(pkt.tmpl.field) / sizeof(pkt.tmpl.field[0]);
+  /* ignore fragments */
+  if(sample->ip_fragmentOffset > 0) return;
+  /* count the bytes from the start of IP header, with the exception that
+     for udp packets we use the udp_pduLen. This is because the udp_pduLen
+     can be up tp 65535 bytes, which causes fragmentation at the IP layer.
+     Since the sampled fragments are discarded, we have to use this field
+     to get the total bytes estimates right. */
+  if(sample->udp_pduLen > 0) bytes = sample->udp_pduLen;
+  else bytes = sample->sampledPacketSize - sample->stripped - sample->offsetToIPV4;
+
+  memset(&pkt, 0, sizeof(pkt));
+
+  /* Fill packet header */
+  pkt.hdr.version = htons(9);
+  pkt.hdr.count = htons(2);  /* one template + one flow record */
+  pkt.hdr.sysUpTime = htonl(now % (3600 * 24)) * 1000;  /* pretend we started at midnight (milliseconds) */
+  pkt.hdr.unixSeconds = htonl(now);
+  pkt.hdr.flowSequence = htonl(NFFlowSequenceNo++);
+
+  /* Fill template flowset */
+  pkt.tmpl.setId = 0;
+  pkt.tmpl.length = htons(sizeof(pkt.tmpl));
+  pkt.tmpl.templateId = htons(256);
+  pkt.tmpl.fieldCount = htons(fieldCount);
+  for(i=0; i<fieldCount; i++) {
+    pkt.tmpl.field[i].id = htons(nfField9[i].id);
+    pkt.tmpl.field[i].sz = htons(nfField9[i].sz);
+  }
+
+  /* Fill data flowset */
+  pkt.data.templateId = htons(256);
+  pkt.data.length = htons(sizeof(pkt.data));
+  pkt.data.flow.srcIP = sample->ipsrc.address.ip_v4.addr;
+  pkt.data.flow.dstIP = sample->ipdst.address.ip_v4.addr;
+  pkt.data.flow.nextHop = sample->nextHop.address.ip_v4.addr;
+  /* We are no longer truncating these interface fields as with NetFlow v5 */
+  pkt.data.flow.if_in = htonl(sample->inputPort);
+  pkt.data.flow.if_out= htonl(sample->outputPort);
+
+  if(!sfConfig.disableNetFlowScale) {
+    pkt.data.flow.packets = htonl(sample->meanSkipCount);
+    pkt.data.flow.bytes = htonl(sample->meanSkipCount * bytes);
+  }
+  else {
+    /* set the sampling_interval header field */
+    uint16_t samp_ival = (uint16_t)sample->meanSkipCount;
+    pkt.data.flow.samplingInterval = htonl(samp_ival & 0x4000);
+    pkt.data.flow.packets = htonl(1);
+    pkt.data.flow.bytes = htonl(bytes);
+  }
+
+  /* set the start and end time to be now (in milliseconds since last boot) */
+  pkt.data.flow.firstTime = pkt.hdr.sysUpTime;
+  pkt.data.flow.lastTime =  pkt.hdr.sysUpTime;
+  pkt.data.flow.srcPort = htons((uint16_t)sample->dcd_sport);
+  pkt.data.flow.dstPort = htons((uint16_t)sample->dcd_dport);
+  pkt.data.flow.tcpFlags = sample->dcd_tcpFlags;
+  pkt.data.flow.ipProto = sample->dcd_ipProtocol;
+  pkt.data.flow.ipTos = sample->dcd_ipTos;
+
+  if(sfConfig.netFlowPeerAS) {
+    pkt.data.flow.srcAS = htonl(sample->src_peer_as);
+    pkt.data.flow.dstAS = htonl(sample->dst_peer_as);
+  }
+  else {
+    pkt.data.flow.srcAS = htonl(sample->src_as);
+    pkt.data.flow.dstAS = htonl(sample->dst_as);
+  }
+
+  pkt.data.flow.srcMask = (uint8_t)sample->srcMask;
+  pkt.data.flow.dstMask = (uint8_t)sample->dstMask;
+
+  #ifdef SPOOFSOURCE
+  if(sfConfig.spoofSource) {
+    sendNetFlowDatagram_spoof(sample, (NFFlowPkt *)&pkt);
+    return;
+  }
+  #endif /* SPOOFSOURCE */
+
+  /* send non-blocking */
+  send(sfConfig.netFlowOutputSocket, (char *)&pkt, sizeof(pkt), 0);
 }
 
 /*_________________---------------------------__________________
@@ -4832,6 +5109,7 @@ static void instructions(char *command)
 #ifdef SPOOFSOURCE
   fprintf(ERROUT, "   -S                 -  spoof source of netflow packets to input agent IP\n");
 #endif
+  fprintf(ERROUT, "   -N version         -  (netflow version, 5 or 9 (default 5))\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"Filters:\n");
   fprintf(ERROUT, "   +v <vlans>         -  include vlans (e.g. +v 0-20,4091)\n");
@@ -4864,6 +5142,7 @@ static void process_command_line(int argc, char *argv[])
 
   /* set defaults */
   sfConfig.sFlowInputPort = 6343;
+  sfConfig.netFlowVersion = 5;
 #ifdef WIN32
   sfConfig.listen4 = YES;
   sfConfig.listen6 = NO;
@@ -4902,6 +5181,7 @@ static void process_command_line(int argc, char *argv[])
     case 'c':
     case 'd':
     case 'f':
+    case 'N':
     case 'v': if(arg < argc) break;
     default: instructions(*argv); exit(1);
     }
@@ -4938,6 +5218,20 @@ static void process_command_line(int argc, char *argv[])
 #ifdef SPOOFSOURCE      
     case 'S': sfConfig.spoofSource = YES; break;
 #endif
+    case 'N':
+      {
+        sfConfig.netFlowVersion = atoi(argv[arg++]);
+        switch(sfConfig.netFlowVersion) {
+        case 5: sendNetFlowDatagram = sendNetFlowV5Datagram; break;
+        case 9: sendNetFlowDatagram = sendNetFlowV9Datagram; break;
+        default:
+          {
+            fprintf(ERROUT, "invalid netflow version specified (use 5 or 9)\n");
+            exit(-8);
+          }
+        }
+      }
+      break;
     case 'f':
       if(addForwardingTarget(argv[arg++]) == NO) exit(-35);
       sfConfig.outputFormat = SFLFMT_FWD;
