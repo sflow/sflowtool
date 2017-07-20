@@ -1,3 +1,5 @@
+Jul-20-2017:
+       4.01: - option to emit NetFlow v9. Thanks to Philip Kovacs.
 Mar-31-2017:
        3.41: - print Open vSwitch datapath performance counters
 Mar-08-2017:
