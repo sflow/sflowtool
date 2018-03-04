@@ -29,6 +29,10 @@ or get a line-by-line output like this:
 
 % ./sflowtool -p 6434 -l
 
+or get a line-by-line output including timestamps like this:
+
+% ./sflowtool -p 6434 -L
+
 In a typical application, this output would be parsed by an awk or perl script, perhaps to
 extract MAC->IP address-mappings or to extract a particular counter for trending. The
 usage might then look more like this:
@@ -198,6 +202,9 @@ for each flow or counter sample. It will look something like this:
     [root@server src]# ./sflowtool -l
     CNTR,10.0.0.254,17,6,100000000,0,2147483648,175283006,136405187,2578019,297011,0,3,0,0,0,0,0,0,0,1
     FLOW,10.0.0.254,0,0,00902773db08,001083265e00,0x0800,0,0,10.0.0.1,10.0.0.254,17,0x00,64,35690,161,0x00,143,125,80
+
+Running sflowtool using the "-L" option will produce very similar output, but
+a timestamp will be inserted as the third column in the CSV output.
 
 The counter samples are indicated with the "CNTR" entry in the first column.
 The second column is the agent address.  The remaining columns are the

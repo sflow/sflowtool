@@ -181,7 +181,7 @@ typedef struct _SFForwardingTarget6 {
   int sock;
 } SFForwardingTarget6;
 
-typedef enum { SFLFMT_FULL=0, SFLFMT_PCAP, SFLFMT_LINE, SFLFMT_NETFLOW, SFLFMT_FWD, SFLFMT_CLF, SFLFMT_SCRIPT } EnumSFLFormat;
+typedef enum { SFLFMT_FULL=0, SFLFMT_PCAP, SFLFMT_LINE, SFLFMT_TSLINE, SFLFMT_NETFLOW, SFLFMT_FWD, SFLFMT_CLF, SFLFMT_SCRIPT } EnumSFLFormat;
 
 #define SA_MAX_PCAP_PKT 65536
 #define SA_MAX_SFLOW_PKT_SIZ 65536
@@ -807,7 +807,7 @@ int sampleFilterOK(SFSample *sample)
   -----------------___________________________------------------
 */
 
-static void writeFlowLine(SFSample *sample)
+static void writeFlowLine(SFSample *sample, int writeTimestamp)
 {
   char agentIP[51], srcIP[51], dstIP[51];
   /* source */
@@ -816,6 +816,12 @@ static void writeFlowLine(SFSample *sample)
 	    sample->inputPort,
 	    sample->outputPort) < 0) {
     exit(-41);
+  }
+  if(writeTimestamp == YES) {
+    char nowstr[200];
+    time_t now = sample->pcapTimestamp ?: sample->readTimestamp;
+    strftime(nowstr,200,"%d/%b/%Y:%H:%M:%S",localtime(&now));
+    printf("%s,", nowstr);
   }
   /* layer 2 */
   if(printf("%02x%02x%02x%02x%02x%02x,%02x%02x%02x%02x%02x%02x,0x%04x,%d,%d",
@@ -862,12 +868,18 @@ static void writeFlowLine(SFSample *sample)
   -----------------___________________________------------------
 */
 
-static void writeCountersLine(SFSample *sample)
+static void writeCountersLine(SFSample *sample, int writeTimestamp)
 {
   /* source */
   char agentIP[51];
   if(printf("CNTR,%s,", printAddress(&sample->agent_addr, agentIP)) < 0) {
     exit(-45);
+  }
+  if(writeTimestamp == YES) {
+    char nowstr[200];
+    time_t now = sample->pcapTimestamp ?: sample->readTimestamp;
+    strftime(nowstr,200,"%d/%b/%Y:%H:%M:%S",localtime(&now));
+    printf("%s,", nowstr);
   }
   if(printf("%u,%u,%"PRIu64",%u,%u,%"PRIu64",%u,%u,%u,%u,%u,%u,%"PRIu64",%u,%u,%u,%u,%u,%u\n",
 	    sample->ifCounters.ifIndex,
@@ -3065,7 +3077,11 @@ static void readFlowSample_v2v4(SFSample *sample)
       break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
-      writeFlowLine(sample);
+      writeFlowLine(sample, NO);
+      break;
+    case SFLFMT_TSLINE:
+      /* or line-by-line output (with timestamps)... */
+      writeFlowLine(sample, YES);
       break;
     case SFLFMT_CLF:
     case SFLFMT_FULL:
@@ -3218,7 +3234,11 @@ static void readFlowSample(SFSample *sample, int expanded)
       break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
-      writeFlowLine(sample);
+      writeFlowLine(sample, NO);
+      break;
+    case SFLFMT_TSLINE:
+      /* or line-by-line output (with timestamps)... */
+      writeFlowLine(sample, YES);
       break;
     case SFLFMT_CLF:
       if(sfCLF.valid) {
@@ -4188,7 +4208,12 @@ static void readCountersSample_v2v4(SFSample *sample)
   default: receiveError(sample, "unknown INMCOUNTERSVERSION", YES); break;
   }
   /* line-by-line output... */
-  if(sfConfig.outputFormat == SFLFMT_LINE) writeCountersLine(sample);
+  if(sfConfig.outputFormat == SFLFMT_LINE) {
+    writeCountersLine(sample, NO);
+  }
+  else if(sfConfig.outputFormat == SFLFMT_TSLINE) {
+    writeCountersLine(sample, YES);
+  }
 }
 
 /*_________________---------------------------__________________
@@ -4278,7 +4303,12 @@ static void readCountersSample(SFSample *sample, int expanded)
   }
   lengthCheck(sample, "counters_sample", sampleStart, sampleLength);
   /* line-by-line output... */
-  if(sfConfig.outputFormat == SFLFMT_LINE) writeCountersLine(sample);
+  if(sfConfig.outputFormat == SFLFMT_LINE) {
+    writeCountersLine(sample, NO);
+  }
+  else if(sfConfig.outputFormat == SFLFMT_TSLINE) {
+    writeCountersLine(sample, YES);
+  }
 }
 
 /*_________________---------------------------__________________
@@ -5162,6 +5192,7 @@ static void process_command_line(int argc, char *argv[])
     switch(in) {
     case 't':
     case 'l':
+    case 'L':
     case 'g':
     case 'H':
     case 'x':
@@ -5190,6 +5221,7 @@ static void process_command_line(int argc, char *argv[])
     case 'p': sfConfig.sFlowInputPort = atoi(argv[arg++]); break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
     case 'l': sfConfig.outputFormat = SFLFMT_LINE; break;
+    case 'L': sfConfig.outputFormat = SFLFMT_TSLINE; break;
     case 'H': sfConfig.outputFormat = SFLFMT_CLF; break;
     case 'g': sfConfig.outputFormat = SFLFMT_SCRIPT; break;
     case 'r':
