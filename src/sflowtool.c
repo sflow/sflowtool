@@ -5123,6 +5123,7 @@ static void instructions(char *command)
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"txt output:\n");
   fprintf(ERROUT, "   -l                 -  (output in line-by-line CSV format)\n");
+  fprintf(ERROUT, "   -L                 -  (output in line-by-line CSV format, with timestamps)\n");
   fprintf(ERROUT, "   -g                 -  (output in 'grep-friendly' format)\n");
   fprintf(ERROUT, "   -H                 -  (output HTTP common log file format)\n");
   fprintf(ERROUT,"\n");
