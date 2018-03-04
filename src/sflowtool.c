@@ -820,7 +820,7 @@ static void writeFlowLine(SFSample *sample, int writeTimestamp)
   if(writeTimestamp == YES) {
     char nowstr[200];
     time_t now = sample->pcapTimestamp ?: sample->readTimestamp;
-    strftime(nowstr,200,"%Y-%m-%dT%H:%M:%S",localtime(&now));
+    strftime(nowstr,200,"%Y-%m-%d %H:%M:%S",localtime(&now));
     printf("%s,", nowstr);
   }
   /* layer 2 */
@@ -878,7 +878,7 @@ static void writeCountersLine(SFSample *sample, int writeTimestamp)
   if(writeTimestamp == YES) {
     char nowstr[200];
     time_t now = sample->pcapTimestamp ?: sample->readTimestamp;
-    strftime(nowstr,200,"%Y-%m-%dT%H:%M:%S",localtime(&now));
+    strftime(nowstr,200,"%Y-%m-%d %H:%M:%S",localtime(&now));
     printf("%s,", nowstr);
   }
   if(printf("%u,%u,%"PRIu64",%u,%u,%"PRIu64",%u,%u,%u,%u,%u,%u,%"PRIu64",%u,%u,%u,%u,%u,%u\n",
