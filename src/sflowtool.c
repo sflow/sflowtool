@@ -1271,6 +1271,7 @@ static void decodeIPV4(SFSample *sample)
 static void decodeIPV6(SFSample *sample)
 {
   uint16_t payloadLen;
+  uint16_t tos;
   uint32_t label;
   uint32_t nextHeader;
 
@@ -1290,11 +1291,17 @@ static void decodeIPV6(SFSample *sample)
       }
     }
 
-    /* get the tos (priority) */
-    sample->dcd_ipTos = *ptr++ & 15;
+    /* get the tos (ipv6 traffic-class) -- */
+    /* 4 low-order bits from first byte + 4 high-order bits from second byte */
+    tos = *ptr++ & 15;
+    tos <<= 8;
+    tos += *ptr & 240;
+    tos >>= 4;
+    sample->dcd_ipTos = tos;
     sf_log(sample,"IPTOS %u\n", sample->dcd_ipTos);
-    /* 24-bit label */
-    label = *ptr++;
+
+    /* 20-bit label */
+    label = *ptr++ & 15;
     label <<= 8;
     label += *ptr++;
     label <<= 8;
