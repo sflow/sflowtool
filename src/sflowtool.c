@@ -4940,12 +4940,15 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
 {
   struct addrinfo *info = NULL;
   struct addrinfo hints = { 0 };
+  int err;
+
   hints.ai_socktype = SOCK_DGRAM; // constrain this so we don't get lots of answers
   hints.ai_family = family; // PF_INET, PF_INET6 or 0
   if(numeric) {
     hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
   }
-  int err = getaddrinfo(name, NULL, &hints, &info);
+
+  err = getaddrinfo(name, NULL, &hints, &info);
   if(err) {
     fprintf(ERROUT, "getaddrinfo() failed: %s", gai_strerror(err));
     /* try again if err == EAI_AGAIN? */
@@ -4953,7 +4956,8 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
   }
   
   if(info == NULL) return NO;
-  
+
+  err = YES;
   if(info->ai_addr) {
     // answer is now in info - a linked list of answers with sockaddr values.
     // extract the address we want from the first one. $$$ should perhaps
@@ -4978,13 +4982,13 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
       break;
     default:
       fprintf(ERROUT, "get addrinfo: unexpected address family: %d", info->ai_family);
-      return NO;
+      err = NO;
       break;
     }
   }
   // free the dynamically allocated data before returning
   freeaddrinfo(info);
-  return YES;
+  return err;
 }
 
 /*_________________---------------------------__________________
