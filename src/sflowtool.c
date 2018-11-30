@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2011 InMon Corp. Licensed under the terms of the InMon sFlow licence: */
+/* Copyright (c) 2002-2018 InMon Corp. Licensed under the terms of the InMon sFlow licence: */
 /* http://www.inmon.com/technology/sflowlicense.txt */
 
 #if defined(__cplusplus)
@@ -3091,7 +3091,6 @@ static void readFlowSample(SFSample *sample, int expanded)
   sampleLength = getData32(sample);
   sampleStart = (uint8_t *)sample->datap;
   sample->samplesGenerated = getData32(sample);
-  sf_log(sample,"sampleSequenceNo %u\n", sample->samplesGenerated);
   if(expanded) {
     sample->ds_class = getData32(sample);
     sample->ds_index = getData32(sample);
@@ -3101,6 +3100,7 @@ static void readFlowSample(SFSample *sample, int expanded)
     sample->ds_class = samplerId >> 24;
     sample->ds_index = samplerId & 0x00ffffff;
   }
+  sf_log(sample,"sampleSequenceNo %u\n", sample->samplesGenerated);
   sf_log(sample,"sourceId %u:%u\n", sample->ds_class, sample->ds_index);
 
   sample->meanSkipCount = getData32(sample);
