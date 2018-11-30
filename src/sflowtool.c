@@ -229,6 +229,7 @@ typedef struct _SFConfig {
 
   /* general options */
   int keepGoing;
+  int allowDNS;
 } SFConfig;
 
 /* make the options structure global to the program */
@@ -4947,7 +4948,10 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
   }
   int err = getaddrinfo(name, NULL, &hints, &info);
   if(err) {
-    fprintf(ERROUT, "getaddrinfo() failed: %s", gai_strerror(err));
+    fprintf(ERROUT, "getaddrinfo(%s) failed: %s (expecting %s)\n",
+	    name,
+	    gai_strerror(err),
+	    numeric ? "numeric address" : "hostname or numeric address");
     /* try again if err == EAI_AGAIN? */
     return NO;
   }
@@ -4956,9 +4960,7 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
   
   if(info->ai_addr) {
     // answer is now in info - a linked list of answers with sockaddr values.
-    // extract the address we want from the first one. $$$ should perhaps
-    // traverse the list and look for an IPv4 address since that is more
-    // likely to work?
+    // extract the address we want from the first one.
     switch(info->ai_family) {
     case PF_INET:
       {
@@ -4977,7 +4979,7 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
       }
       break;
     default:
-      fprintf(ERROUT, "get addrinfo: unexpected address family: %d", info->ai_family);
+      fprintf(ERROUT, "getaddrinfo(%s): unexpected address family: %d\n", name, info->ai_family);
       return NO;
       break;
     }
@@ -5005,6 +5007,7 @@ static int addForwardingTarget(char *hostandport)
   SFLAddress tgtIP;
   SFForwardingTarget *tgt;
   SFForwardingTarget6 *tgt6;
+  int numeric = (sfConfig.allowDNS) ? 0 : 1;
 
   if(hostandport == NULL) {
     fprintf(ERROUT, "expected <host>/<port>\n");
@@ -5030,7 +5033,7 @@ static int addForwardingTarget(char *hostandport)
     return NO;
   }
 
-  if(parseOrResolveAddress(hoststr, (struct sockaddr *)&sa, &tgtIP, 0, 1) == NO) {
+  if(parseOrResolveAddress(hoststr, (struct sockaddr *)&sa, &tgtIP, 0, numeric) == NO) {
     return NO;
   }
   switch(tgtIP.type) {
@@ -5040,7 +5043,7 @@ static int addForwardingTarget(char *hostandport)
     tgt->addr.sin_port = htons(port);
     /* and open the socket */
     if((tgt->sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-      fprintf(ERROUT, "socket open (for %s) failed: %s", hostandport, strerror(errno));
+      fprintf(ERROUT, "socket open (for %s) failed: %s\n", hostandport, strerror(errno));
       return NO;
     }
     /* got this far, so must be OK */
@@ -5054,7 +5057,7 @@ static int addForwardingTarget(char *hostandport)
     tgt6->addr.sin6_port = htons(port);
     /* and open the socket */
     if((tgt6->sock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
-      fprintf(ERROUT, "socket open (for %s) failed: %s", hostandport, strerror(errno));
+      fprintf(ERROUT, "socket open (for %s) failed: %s\n", hostandport, strerror(errno));
       return NO;
     }
     /* got this far, so must be OK */
@@ -5063,12 +5066,34 @@ static int addForwardingTarget(char *hostandport)
     break;
 
   default:
-    fprintf(ERROUT, "unknown address type %s", hoststr);
+    fprintf(ERROUT, "unknown address type %s\n", hoststr);
     return NO;
   }
 
   return YES;
 }  
+
+/*_________________---------------------------__________________
+  _________________   setNetFlowCollector     __________________
+  -----------------___________________________------------------
+  return boolean for success or failure
+*/
+
+static int setNetFlowCollector(char *host)
+{
+  struct sockaddr_in6 sa;
+  SFLAddress coll;
+  int numeric = (sfConfig.allowDNS) ? 0 : 1;
+  if(parseOrResolveAddress(host, (struct sockaddr *)&sa, &coll, PF_INET, numeric) == NO) {
+    fprintf(ERROUT, "netflow collector IPv4 address lookup failed\n");
+    return NO;
+  }
+  /* We require an IPv4 address for this because source spoofing is almost
+     certainly going to be needed, and we only know how to do that for IPv4.
+     Copy it into the struct in_addr. */
+  sfConfig.netFlowOutputIP.s_addr = coll.address.ip_v4.addr;
+  return YES;
+}
 
 /*_________________---------------------------__________________
   _________________      instructions         __________________
@@ -5086,30 +5111,34 @@ static void instructions(char *command)
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"usage:\n");
   fprintf(ERROUT, "   -h | -?            -  this help message\n");
+  fprintf(ERROUT, "\n");
+  fprintf(ERROUT,"general:\n");
+  fprintf(ERROUT, "   -k                 -  keep going on non-signal errors rather than aborting\n");
+  fprintf(ERROUT, "   -D                 -  allow hosts to be referenced by DNS name\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"forwarding:\n");
-  fprintf(ERROUT, "   -f host/port       -  (forward sflow to another collector\n");
-  fprintf(ERROUT, "                      -   ...repeat for multiple collectors)\n");
+  fprintf(ERROUT, "   -f host/port       -  forward sflow to IP (or hostname if -D added)\n");
+  fprintf(ERROUT, "                      -   ...repeat for multiple collectors\n");
   fprintf(ERROUT,"\n");
-  fprintf(ERROUT,"txt output:\n");
-  fprintf(ERROUT, "   -l                 -  (output in line-by-line CSV format)\n");
-  fprintf(ERROUT, "   -g                 -  (output in 'grep-friendly' format)\n");
-  fprintf(ERROUT, "   -H                 -  (output HTTP common log file format)\n");
+  fprintf(ERROUT,"text output:\n");
+  fprintf(ERROUT, "   -l                 -  output in line-by-line CSV format\n");
+  fprintf(ERROUT, "   -g                 -  output in 'grep-friendly' format\n");
+  fprintf(ERROUT, "   -H                 -  output HTTP common log file format\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"tcpdump output:\n");
-  fprintf(ERROUT, "   -t                 -  (output in binary tcpdump(1) format)\n");
-  fprintf(ERROUT, "   -r file            -  (read binary tcpdump(1) format)\n");
-  fprintf(ERROUT, "   -x                 -  (remove all IPV4 content)\n");
+  fprintf(ERROUT, "   -t                 -  output in binary tcpdump(1) format\n");
+  fprintf(ERROUT, "   -r file            -  read binary tcpdump(1) format\n");
+  fprintf(ERROUT, "   -x                 -  remove all IPV4 content\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"NetFlow output:\n");
-  fprintf(ERROUT, "   -c hostname_or_IP  -  (netflow collector host)\n");
-  fprintf(ERROUT, "   -d port            -  (netflow collector UDP port)\n");
-  fprintf(ERROUT, "   -e                 -  (netflow collector peer_as (default = origin_as))\n");
-  fprintf(ERROUT, "   -s                 -  (disable scaling of netflow output by sampling rate)\n");
+  fprintf(ERROUT, "   -c host            -  netflow collector IP (or hostname if -D added)\n");
+  fprintf(ERROUT, "   -d port            -  netflow collector UDP port\n");
+  fprintf(ERROUT, "   -e                 -  netflow collector peer_as (default = origin_as)\n");
+  fprintf(ERROUT, "   -s                 -  disable scaling of netflow output by sampling rate\n");
 #ifdef SPOOFSOURCE
   fprintf(ERROUT, "   -S                 -  spoof source of netflow packets to input agent IP\n");
 #endif
-  fprintf(ERROUT, "   -N version         -  (netflow version, 5 or 9 (default 5))\n");
+  fprintf(ERROUT, "   -N version         -  netflow version, 5 or 9 (default 5)\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"Filters:\n");
   fprintf(ERROUT, "   +v <vlans>         -  include vlans (e.g. +v 0-20,4091)\n");
@@ -5117,9 +5146,6 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -4                 -  listen on IPv4 socket only\n");
   fprintf(ERROUT, "   -6                 -  listen on IPv6 socket only\n");
   fprintf(ERROUT, "   +4                 -  listen on both IPv4 and IPv6 sockets\n");
-  fprintf(ERROUT, "\n");
-  fprintf(ERROUT,"General options:\n");
-  fprintf(ERROUT, "   -k                 -  keep going on non-signal errors rather than aborting\n");
   fprintf(ERROUT, "\n");
   fprintf(ERROUT, "=============== Advanced Tools ==============================================\n");
   fprintf(ERROUT, "| sFlow-RT (real time)  - http://sflow-rt.com                               |\n");
@@ -5170,11 +5196,13 @@ static void process_command_line(int argc, char *argv[])
 #ifdef SPOOFSOURCE
     case 'S':
 #endif
+    case 'D':
     case '4':
     case '6':
     case 'k':
     case '?':
-    case 'h': break;
+    case 'h':
+      break;
     case 'p':
     case 'r':
     case 'z':
@@ -5199,15 +5227,8 @@ static void process_command_line(int argc, char *argv[])
         break;
     case 'x': sfConfig.removeContent = YES; break;
     case 'c':
-      {
-	struct hostent *ent = gethostbyname(argv[arg++]);
-	if(ent == NULL) {
-	  fprintf(ERROUT, "netflow collector hostname lookup failed\n");
-	  exit(-8);
-        }
-    	sfConfig.netFlowOutputIP.s_addr = ((struct in_addr *)(ent->h_addr_list[0]))->s_addr;
-	sfConfig.outputFormat = SFLFMT_NETFLOW;
-      }
+      if(setNetFlowCollector(argv[arg++]) == NO) exit(-8);
+      sfConfig.outputFormat = SFLFMT_NETFLOW;
       break;
     case 'd':
       sfConfig.netFlowOutputPort = atoi(argv[arg++]);
@@ -5225,10 +5246,8 @@ static void process_command_line(int argc, char *argv[])
         case 5: sendNetFlowDatagram = sendNetFlowV5Datagram; break;
         case 9: sendNetFlowDatagram = sendNetFlowV9Datagram; break;
         default:
-          {
-            fprintf(ERROUT, "invalid netflow version specified (use 5 or 9)\n");
-            exit(-8);
-          }
+	  fprintf(ERROUT, "invalid netflow version specified (use 5 or 9)\n");
+	  exit(-8);
         }
       }
       break;
@@ -5262,7 +5281,12 @@ static void process_command_line(int argc, char *argv[])
       sfConfig.listen4 = NO;
       sfConfig.listen6 = YES;
       break;
-    case 'k': sfConfig.keepGoing = YES; break;
+    case 'k':
+      sfConfig.keepGoing = YES;
+      break;
+    case 'D':
+      sfConfig.allowDNS = YES;
+      break;
     /* remaining are -h or -? */
     default: instructions(*argv); exit(0);
     }
@@ -5286,7 +5310,7 @@ int main(int argc, char *argv[])
 
   /* read the command line */
   process_command_line(argc, argv);
-
+  
 #ifdef WIN32
   /* on windows we need to tell stdout if we want it to be binary */
   if(sfConfig.outputFormat == SFLFMT_PCAP) setmode(1, O_BINARY);
