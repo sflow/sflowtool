@@ -4942,7 +4942,7 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
   struct addrinfo *info = NULL;
   struct addrinfo hints = { 0 };
   hints.ai_socktype = SOCK_DGRAM; // constrain this so we don't get lots of answers
-  hints.ai_family = family; // PF_INET, PF_INET6 or 0
+  hints.ai_family = family; // AF_INET, AF_INET6 or 0
   if(numeric) {
     hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
   }
@@ -4962,7 +4962,7 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
     // answer is now in info - a linked list of answers with sockaddr values.
     // extract the address we want from the first one.
     switch(info->ai_family) {
-    case PF_INET:
+    case AF_INET:
       {
 	struct sockaddr_in *ipsoc = (struct sockaddr_in *)info->ai_addr;
 	addr->type = SFLADDRESSTYPE_IP_V4;
@@ -4970,7 +4970,7 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
 	if(sa) memcpy(sa, info->ai_addr, info->ai_addrlen);
       }
       break;
-    case PF_INET6:
+    case AF_INET6:
       {
 	struct sockaddr_in6 *ip6soc = (struct sockaddr_in6 *)info->ai_addr;
 	addr->type = SFLADDRESSTYPE_IP_V6;
@@ -5007,7 +5007,7 @@ static int addForwardingTarget(char *hostandport)
   SFLAddress tgtIP;
   SFForwardingTarget *tgt;
   SFForwardingTarget6 *tgt6;
-  int numeric = (sfConfig.allowDNS) ? 0 : 1;
+  int numeric = (sfConfig.allowDNS) ? NO : YES;
 
   if(hostandport == NULL) {
     fprintf(ERROUT, "expected <host>/<port>\n");
@@ -5033,7 +5033,7 @@ static int addForwardingTarget(char *hostandport)
     return NO;
   }
 
-  if(parseOrResolveAddress(hoststr, (struct sockaddr *)&sa, &tgtIP, 0, numeric) == NO) {
+  if(parseOrResolveAddress(hoststr, (struct sockaddr *)&sa, &tgtIP, AF_UNSPEC, numeric) == NO) {
     return NO;
   }
   switch(tgtIP.type) {
@@ -5083,8 +5083,8 @@ static int setNetFlowCollector(char *host)
 {
   struct sockaddr_in6 sa;
   SFLAddress coll;
-  int numeric = (sfConfig.allowDNS) ? 0 : 1;
-  if(parseOrResolveAddress(host, (struct sockaddr *)&sa, &coll, PF_INET, numeric) == NO) {
+  int numeric = (sfConfig.allowDNS) ? NO : YES;
+  if(parseOrResolveAddress(host, (struct sockaddr *)&sa, &coll, AF_INET, numeric) == NO) {
     fprintf(ERROUT, "netflow collector IPv4 address lookup failed\n");
     return NO;
   }
