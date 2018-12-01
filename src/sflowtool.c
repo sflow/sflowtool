@@ -3001,6 +3001,20 @@ static void readExtendedTCPInfo(SFSample *sample)
   sf_log_next32(sample, "tcpinfo_rtt_uS_min");
 }
 
+/*_________________----------------------------__________________
+  _________________    readExtendedEntities    __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedEntities(SFSample *sample)
+{
+  sf_log(sample,"extendedType entities\n");
+  sf_log_next32(sample, "entities_src_class");
+  sf_log_next32(sample, "entities_src_index");
+  sf_log_next32(sample, "entities_dst_class");
+  sf_log_next32(sample, "entities_dst_index");
+}
+
 /*_________________---------------------------__________________
   _________________    readFlowSample_v2v4    __________________
   -----------------___________________________------------------
@@ -3218,6 +3232,7 @@ static void readFlowSample(SFSample *sample, int expanded)
       case SFLFLOW_EX_VNI_OUT: readExtendedVNI(sample, "out_"); break;
       case SFLFLOW_EX_VNI_IN: readExtendedVNI(sample, "in_"); break;
       case SFLFLOW_EX_TCP_INFO: readExtendedTCPInfo(sample); break;
+      case SFLFLOW_EX_ENTITIES: readExtendedEntities(sample); break;
       default: skipTLVRecord(sample, tag, length, "flow_sample_element"); break;
       }
       lengthCheck(sample, "flow_sample_element", start, length);

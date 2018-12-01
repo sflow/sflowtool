@@ -409,6 +409,18 @@ typedef struct  _SFLExtended_TCP_info {
 
 #define  XDRSIZ_SFLEXTENDED_TCP_INFO 48
 
+  /* Physical or virtual host description
+     opaque = flow_data; enterprise = 0; format = 2210
+     Set Data source to all zeroes if unknown  */
+typedef struct _SFLExtended_entities {
+  uint32_t src_dsClass; /* Data Source associated with packet source */
+  uint32_t src_dsIndex;
+  uint32_t dst_dsClass; /* Data Source associated with packet destination */
+  uint32_t dst_dsIndex;
+} SFLExtended_entities;
+
+#define XDRSIZ_SFLEXTENDED_ENTITIES 16
+
 /* Extended socket information,
    Must be filled in for all application transactions associated with a network socket
    Omit if transaction associated with non-network IPC  */
@@ -635,6 +647,7 @@ enum SFLFlow_type_tag {
   SFLFLOW_APP_ACTOR_TGT    = 2205, /* target */
   SFLFLOW_HTTP2            = 2206,
   SFLFLOW_EX_TCP_INFO      = 2209,
+  SFLFLOW_EX_ENTITIES      = 2210,
 };
 
 typedef union _SFLFlow_type {
@@ -668,6 +681,8 @@ typedef union _SFLFlow_type {
   SFLExtended_socket_ipv6 socket6;
   SFLExtended_vni tunnel_vni;
   SFLExtended_decap tunnel_decap;
+  SFLExtended_TCP_info tcp_info;
+  SFLExtended_entities entities;
 } SFLFlow_type;
 
 typedef struct _SFLFlow_sample_element {
