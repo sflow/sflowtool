@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 #include "config_windows.h"
 #else
 #include "config.h"
@@ -22,7 +22,7 @@ extern "C" {
 #include <setjmp.h>
 #include <ctype.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 #else
 #include <stdint.h>
 #include <unistd.h>
@@ -67,7 +67,7 @@ static uint16_t MyByteSwap16(uint16_t n) {
 }
 
 #ifndef PRIu64
-# ifdef WIN32
+# ifdef _WIN32
 #  define PRIu64 "I64u"
 # else
 #  define PRIu64 "llu"
@@ -4631,12 +4631,12 @@ static int openInputUDPSocket(uint16_t port)
     return -1;
   }
 
-#ifndef WIN32
+#ifndef _WIN32
   /* make socket non-blocking */
   int save_fd = fcntl(soc, F_GETFL);
   save_fd |= O_NONBLOCK;
   fcntl(soc, F_SETFL, save_fd);
-#endif /* WIN32 */
+#endif /* _WIN32 */
 
   /* Bind the socket */
   if(bind(soc, (struct sockaddr *)&myaddr_in, sizeof(struct sockaddr_in)) == -1) {
@@ -4667,12 +4667,12 @@ static int openInputUDP6Socket(uint16_t port)
     exit(-6);
   }
 
-#ifndef WIN32
+#ifndef _WIN32
   /* make socket non-blocking */
   int save_fd = fcntl(soc, F_GETFL);
   save_fd |= O_NONBLOCK;
   fcntl(soc, F_SETFL, save_fd);
-#endif /* WIN32 */
+#endif /* _WIN32 */
 
   /* Bind the socket */
   if(bind(soc, (struct sockaddr *)&myaddr_in6, sizeof(struct sockaddr_in6)) == -1) {
@@ -5198,7 +5198,7 @@ static void process_command_line(int argc, char *argv[])
   /* set defaults */
   sfConfig.sFlowInputPort = 6343;
   sfConfig.netFlowVersion = 5;
-#ifdef WIN32
+#ifdef _WIN32
   sfConfig.listen4 = YES;
   sfConfig.listen6 = NO;
 #else
@@ -5331,7 +5331,7 @@ int main(int argc, char *argv[])
 {
   int32_t soc4=-1,soc6=-1;
 
-#ifdef WIN32
+#ifdef _WIN32
   WSADATA wsadata;
   WSAStartup(0xffff, &wsadata);
   /* TODO: supposed to call WSACleanup() on termination */
@@ -5340,7 +5340,7 @@ int main(int argc, char *argv[])
   /* read the command line */
   process_command_line(argc, argv);
 
-#ifdef WIN32
+#ifdef _WIN32
   /* on windows we need to tell stdout if we want it to be binary */
   if(sfConfig.outputFormat == SFLFMT_PCAP) setmode(1, O_BINARY);
 #endif
