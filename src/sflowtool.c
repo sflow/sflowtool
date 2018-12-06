@@ -5297,9 +5297,14 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
     return NO;
   }
 
-  if(info == NULL) return NO;
+  if(info == NULL)
+    return NO;
 
-  if(info->ai_addr) {
+  // info now allocated on heap - see freeaddrinfo() below
+  if(!info->ai_addr) {
+    err = YES;
+  }
+  else {
     // answer is now in info - a linked list of answers with sockaddr values.
     // extract the address we want from the first one.
     switch(info->ai_family) {
@@ -5321,13 +5326,14 @@ static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *ad
       break;
     default:
       fprintf(ERROUT, "getaddrinfo(%s): unexpected address family: %d\n", name, info->ai_family);
-      return NO;
+      err = YES;
       break;
     }
   }
   // free the dynamically allocated data before returning
   freeaddrinfo(info);
-  return YES;
+  // indicate success
+  return (err == NO);
 }
 
 /*_________________---------------------------__________________
