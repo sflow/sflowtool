@@ -1516,7 +1516,7 @@ static void decodeIPV6(SFSample *sample)
 	  nextHeader == 51 || /* auth */
 	  nextHeader == 60) { /* destination options */
       uint32_t optionLen, skip;
-      sf_logf(sample, NULL, "IP6HeaderExtension:", "%d", nextHeader);
+      sf_logf(sample, NULL, "IP6HeaderExtension", "%d", nextHeader);
       nextHeader = ptr[0];
       optionLen = 8 * (ptr[1] + 1);  /* second byte gives option len in 8-byte chunks, not counting first 8 */
       skip = optionLen - 2;
