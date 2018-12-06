@@ -1,3 +1,7 @@
+Dec-05-2018:
+       5.01  - option to emit JSON
+	     - adopt ISO8601 compatible timestamp format
+	     - fix IPv6 tos and label decide. Thanks to jabersmith
 Jul-20-2017:
        4.01: - option to emit NetFlow v9. Thanks to Philip Kovacs.
 Mar-31-2017:
@@ -146,4 +150,4 @@ Jan-15-2002
 	1.2 changes to allow compilation on Solaris - thanks to Bogdan Ionescu from University of Ottowa
 May-31-2001
 	1.0 initial release, works with sFlow version 2
-	
+

@@ -1,11 +1,11 @@
 Summary: tool to ascii-print or forward sFlow datagrams
 Name: sflowtool
-Version: 4.01
+Version: 5.01
 Release: 1%{?dist}
-License: http://www.inmon.com/technology/sflowlicense.txt
+License: https://www.inmon.com/technology/sflowlicense.txt
 Group: Productivity/Networking/Diagnostic
-URL: http://inmon.com/technology/sflowTools.php
-Source: http://inmon.com/bin/sflowtool-%{version}.tar.gz
+URL: https://inmon.com/technology/sflowTools.php
+Source: https://github.com/sflow/sflowtool
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 %description
