@@ -95,7 +95,7 @@ struct myiphdr
 /* ip6 header if no option headers */
 struct myip6hdr {
   uint8_t version_and_priority;
-  uint8_t label1;
+  uint8_t priority_and_label1;
   uint8_t label2;
   uint8_t label3;
   uint16_t payloadLength;
@@ -1454,6 +1454,7 @@ static void decodeIPV6(SFSample *sample)
   uint16_t payloadLen;
   uint32_t label;
   uint32_t nextHeader;
+  uint32_t tos;
 
   uint8_t *end = sample->header + sample->headerLen;
   uint8_t *start = sample->header + sample->offsetToIPV6;
@@ -1472,14 +1473,12 @@ static void decodeIPV6(SFSample *sample)
     }
 
     /* get the tos (priority) */
-    sample->dcd_ipTos = *ptr++ & 15;
+    sample->dcd_ipTos = ((ptr[0] & 15) << 4) + (ptr[1] >> 4);
+    ptr++;
     sf_logf(sample, NULL, "IPTOS", "%u", sample->dcd_ipTos);
-    /* 24-bit label */
-    label = *ptr++;
-    label <<= 8;
-    label += *ptr++;
-    label <<= 8;
-    label += *ptr++;
+    /* 20-bit label */
+    label = ((ptr[0] & 15) << 16) + (ptr[1] << 8) + ptr[2];
+    ptr += 3;
     sf_logf(sample, NULL, "IP6_label", "0x%lx", label);
     /* payload */
     payloadLen = (ptr[0] << 8) + ptr[1];
