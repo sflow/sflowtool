@@ -788,7 +788,8 @@ static int SFStr_append_tag(SFStr *sb, uint32_t tag) {
 
 static int SFStr_append_timestamp(SFStr *sb, time_t ts) {
   char tstr[200];
-  strftime(tstr, 200, "%d/%b/%Y:%H:%M:%S", localtime(&ts));
+  // ISO8601 compatible localtime
+  strftime(tstr, 200, "%Y-%m-%dT%H:%M:%S", localtime(&ts));
   return SFStr_append(sb, tstr);
 }
 
@@ -4761,9 +4762,10 @@ static void readSFlowDatagram(SFSample *sample)
   sf_logf(sample, NULL, "datagramSourceIP", printAddress(&sample->sourceIP, &buf));
   sf_logf(sample, NULL, "datagramSize", "%u", sample->rawSampleLen);
   sf_logf(sample, NULL, "unixSecondsUTC", "%u", sample->readTimestamp);
+  sf_logf(sample, NULL, "localtime", printTimestamp(sample->readTimestamp, &buf));
   if(sample->pcapTimestamp) {
     /* thanks to Richard Clayton for this bugfix */    
-    sf_logf(sample, NULL, "pcapTimestamp", ctime(&sample->pcapTimestamp));
+    sf_logf(sample, NULL, "pcapTimestamp", printTimestamp(&sample->pcapTimestamp, &buf));
   }
 
   /* check the version */
