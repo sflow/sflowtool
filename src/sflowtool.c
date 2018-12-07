@@ -704,11 +704,46 @@ static int SFStr_append(SFStr *sb, char *str) {
   return (copylen == slen);
 }
 
-static uint8_t bin2hex(int nib, int upper)
-{
-  char letterA = upper ? 'A' : 'a';
-  return (nib < 10) ? ('0' + nib) : (letterA - 10 + nib);
-}
+/* hex printing tends to be one of the performance bottlenecks,
+   so take the trouble to optimize it just a little */
+
+static u_int8_t HexLookupL[513]= {
+  "000102030405060708090a0b0c0d0e0f"
+  "101112131415161718191a1b1c1d1e1f"
+  "202122232425262728292a2b2c2d2e2f"
+  "303132333435363738393a3b3c3d3e3f"
+  "404142434445464748494a4b4c4d4e4f"
+  "505152535455565758595a5b5c5d5e5f"
+  "606162636465666768696a6b6c6d6e6f"
+  "707172737475767778797a7b7c7d7e7f"
+  "808182838485868788898a8b8c8d8e8f"
+  "909192939495969798999a9b9c9d9e9f"
+  "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
+  "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
+  "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf"
+  "d0d1d2d3d4d5d6d7d8d9dadbdcdddedf"
+  "e0e1e2e3e4e5e6e7e8e9eaebecedeeef"
+  "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+};
+
+static uint8_t HexLookupU[513]= {
+  "000102030405060708090A0B0C0D0E0F"
+  "101112131415161718191A1B1C1D1E1F"
+  "202122232425262728292A2B2C2D2E2F"
+  "303132333435363738393A3B3C3D3E3F"
+  "404142434445464748494A4B4C4D4E4F"
+  "505152535455565758595A5B5C5D5E5F"
+  "606162636465666768696A6B6C6D6E6F"
+  "707172737475767778797A7B7C7D7E7F"
+  "808182838485868788898A8B8C8D8E8F"
+  "909192939495969798999A9B9C9D9E9F"
+  "A0A1A2A3A4A5A6A7A8A9AAABACADAEAF"
+  "B0B1B2B3B4B5B6B7B8B9BABBBCBDBEBF"
+  "C0C1C2C3C4C5C6C7C8C9CACBCCCDCECF"
+  "D0D1D2D3D4D5D6D7D8D9DADBDCDDDEDF"
+  "E0E1E2E3E4E5E6E7E8E9EAEBECEDEEEF"
+  "F0F1F2F3F4F5F6F7F8F9FAFBFCFDFEFF"
+};
 
 static int SFStr_append_hex(SFStr *sb, u_char *hex, int nbytes, int prefix, int upper, char sep) {
   if(prefix) {
@@ -717,16 +752,23 @@ static int SFStr_append_hex(SFStr *sb, u_char *hex, int nbytes, int prefix, int 
     sb->str[sb->len++] = '0';
     sb->str[sb->len++] = 'x';
   }
+  int hexPerByte = 2;
+  if(sep) hexPerByte++;
+  int roomForBytes = (sb->cap - sb->len - 1) / hexPerByte;
+  if(nbytes > roomForBytes)
+    nbytes = roomForBytes;
+
+  uint16_t *lookup = (uint16_t *)(upper ? HexLookupU : HexLookupL);
+
   for(int ii = 0; ii < nbytes; ii++) {
-    if((sb->cap - sb->len) < 4)
-      return NO;
-    if(ii > 0 && sep)
-      sb->str[sb->len++] = sep;
-    sb->str[sb->len++] = bin2hex(hex[ii] >> 4, upper);
-    sb->str[sb->len++] = bin2hex(hex[ii] & 0x0f, upper);
+    if(sep && ii) sb->str[sb->len++] = sep;
+    uint16_t word = lookup[hex[ii]];
+    sb->str[sb->len++] = word >> 8;
+    sb->str[sb->len++] = word & 0xFF;
   }
+
   sb->str[sb->len] = '\0';
-  return YES;
+  return (nbytes == roomForBytes);
 }
 
 static int SFStr_append_array32(SFStr *sb, uint32_t *array32, int n, int net_byte_order, char sep) {
@@ -916,10 +958,12 @@ static void json_indent() {
 }
 
 static void json_start(char *fname, char bracket) {
+  if(sfConfig.jsonListStart == NO)
+    printf(",");
   json_indent();
   if(fname)
-    printf("\"%s\": ", fname);
-  printf("%c ", bracket);
+    printf("\"%s\":", fname);
+  printf("%c", bracket);
   sfConfig.outputDepth++;
   /* indicate start of list */
   sfConfig.jsonListStart = YES;
@@ -928,7 +972,7 @@ static void json_start(char *fname, char bracket) {
 static void json_end(char bracket) {
   sfConfig.outputDepth--;
   json_indent();
-  printf("%c ", bracket);
+  printf("%c", bracket);
   /* clear list-start flag in case array/obj was emtpy */
   sfConfig.jsonListStart = NO;
 }
@@ -996,7 +1040,7 @@ static void sf_logf(SFSample *sample, char *fieldPrefix, char *fieldName, char *
     
     json_indent();
     /* always print as JSON strings, since value may be 64-bit integer */
-    if(printf("\"%s%s\": \"%s\"", fieldPrefix ?: "", fieldName, val) < 0)
+    if(printf("\"%s%s\":\"%s\"", fieldPrefix ?: "", fieldName, val) < 0)
       exit(-40);
   }
 
@@ -1071,13 +1115,15 @@ char *URLEncode(char *in, char *out, int outlen)
   register char c, *r = in, *w = out;
   int maxlen = (strlen(in) * 3) + 1;
   if(outlen < maxlen) return "URLEncode: not enough space";
+  uint16_t *lookup = (uint16_t *)HexLookupU;
   while ((c = *r++)) {
     if(isalnum(c)) *w++ = c;
     else if(isspace(c)) *w++ = '+';
     else {
+      uint16_t word = lookup[c];
       *w++ = '%';
-      *w++ = bin2hex(c >> 4, YES);
-      *w++ = bin2hex(c & 0x0f, YES);
+      *w++ = word >> 8;
+      *w++ = word & 255;
     }
   }
   *w++ = '\0';
@@ -3421,7 +3467,6 @@ static void readFlowSample_v2v4(SFSample *sample)
     for(x = 0; x < sample->num_extended; x++) {
       uint32_t extended_tag;
       if(sfConfig.outputFormat == SFLFMT_JSON) {
-	printf(", "); /* first element was packet-data */
 	json_start_ob(NULL);
       }
       extended_tag = getData32(sample);
@@ -3543,8 +3588,6 @@ static void readFlowSample(SFSample *sample, int expanded)
       uint8_t *start;
       SFStr buf;
       if(sfConfig.outputFormat == SFLFMT_JSON) {
-	if(el > 0)
-	  printf(", ");
 	json_start_ob(NULL);
       }
       tag = sample->elementType = getData32(sample);
@@ -3907,8 +3950,6 @@ static void readCounters_adaptors(SFSample *sample)
     json_start_ar("adaptor_list");
     for(i = 0; i < num_adaptors; i++) {
       ifindex = getData32(sample);
-      if (i > 0)
-	printf(", ");
       json_start_ob(NULL);
       sf_logf_U32(sample, "ifIndex", ifindex);
       num_macs = getData32(sample);
@@ -3916,7 +3957,7 @@ static void readCounters_adaptors(SFSample *sample)
       json_start_ar("mac_list");
       for(j = 0; j < num_macs; j++) {
 	if(j > 0)
-	  printf(", ");
+	  printf(",");
 	mac = (uint8_t *)sample->datap;
 	skipBytes(sample, 8);
 	SFStr macstr;
@@ -4591,8 +4632,6 @@ static void readCounters_SFP(SFSample *sample)
   for(ll=0; ll < num_lanes; ll++) {
 
     if(sfConfig.outputFormat == SFLFMT_JSON) {
-      if(ll > 0)
-	printf(", ");
       json_start_ob(NULL);
     }
     sf_logf_SFP(sample, "index", ll, getData32(sample));
@@ -4656,7 +4695,6 @@ static void readCountersSample_v2v4(SFSample *sample)
 
   if(sfConfig.outputFormat == SFLFMT_JSON) {
     json_end_ob();
-    printf(", ");
     json_start_ob(NULL);
   }
 
@@ -4727,8 +4765,6 @@ static void readCountersSample(SFSample *sample, int expanded)
     uint8_t *start;
     SFStr buf;
     if(sfConfig.outputFormat == SFLFMT_JSON) {
-      if(el > 0)
-	printf(", ");
       json_start_ob(NULL);
     }
     tag = sample->elementType = getData32(sample);
@@ -5018,8 +5054,6 @@ static void readSFlowDatagram(SFSample *sample)
       sample->sampleType = getData32(sample);
       
       if(sfConfig.outputFormat == SFLFMT_JSON) {
-	if(samp > 0)
-	  printf(", ");
 	json_start_ob(NULL);
       }
       else
