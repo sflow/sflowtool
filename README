@@ -27,7 +27,11 @@ If sFlow is arriving on port 6343, you can pretty-print the data like this:
 
 or get a line-by-line output like this:
 
-% ./sflowtool -p 6434 -l
+% ./sflowtool -p 6343 -l
+
+or a JSON representation like this:
+
+% ./sflowtool -p 6343 -J
 
 In a typical application, this output would be parsed by an awk or perl script, perhaps to
 extract MAC->IP address-mappings or to extract a particular counter for trending. The
@@ -225,10 +229,13 @@ The second column is the agent address. The remaining columns are:
     IP_size
     sampling_rate
 
+To request a custom line output, use the -L <fields> option, like this:
+
+% sflowtool -L localtime,srcIP,dstIP
 
 # grep-friendly output
 
-Adding the "-g" option causes sflowtool to include contextual information on every
+The "-g" option causes sflowtool to include contextual information on every
 line of output.  The fields are:
 
      agentIP
@@ -241,6 +248,11 @@ line of output.  The fields are:
 
 For example,  this makes it much easier to extract a particular counter for each agent,
 accumulate the deltas, and stream it to a time-series database.
+
+# JSON output
+
+The -J option prints human-readable JSON with a blank line between datagrams.  To
+print more compact JSON with each datagram on one line, use -j instead.
 
 ---
 ----------------------------------------
