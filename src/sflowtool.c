@@ -5132,10 +5132,13 @@ static void receiveSFlowDatagram(SFSample *sample)
   else {
     int exceptionVal;
     sample->readTimestamp = (long)time(NULL);
-    if(sfConfig.outputFormat == SFLFMT_JSON)
+    if(sfConfig.outputFormat == SFLFMT_JSON) {
+      sfConfig.jsonListStart = YES;
       json_start_ob(NULL);
-    else
+    }
+    else {
       sf_log(sample,"startDatagram =================================\n");
+    }
 
     if((exceptionVal = setjmp(sample->env)) == 0)  {
       /* TRY */
