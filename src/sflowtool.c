@@ -230,6 +230,7 @@ typedef struct _SFConfig {
   char *writePcapFile;
   EnumSFLFormat outputFormat;
   int jsonIndent;
+  int jsonListStart;
   int outputDepth;
   SFFieldList outputFieldList;
   EnumSFScope currentFieldScope;
@@ -920,12 +921,16 @@ static void json_start(char *fname, char bracket) {
     printf("\"%s\": ", fname);
   printf("%c ", bracket);
   sfConfig.outputDepth++;
+  /* indicate start of list */
+  sfConfig.jsonListStart = YES;
 }
 
 static void json_end(char bracket) {
   sfConfig.outputDepth--;
   json_indent();
   printf("%c ", bracket);
+  /* clear list-start flag in case array/obj was emtpy */
+  sfConfig.jsonListStart = NO;
 }
 
 static void json_start_ob(char *fname) {  json_start(fname, '{'); }
@@ -984,9 +989,14 @@ static void sf_logf(SFSample *sample, char *fieldPrefix, char *fieldName, char *
   }
 
   if(sfConfig.outputFormat == SFLFMT_JSON) {
+    if(sfConfig.jsonListStart == NO)
+      printf(",");
+    else
+      sfConfig.jsonListStart = NO;
+    
     json_indent();
     /* always print as JSON strings, since value may be 64-bit integer */
-    if(printf("\"%s%s\": \"%s\",", fieldPrefix ?: "", fieldName, val) < 0)
+    if(printf("\"%s%s\": \"%s\"", fieldPrefix ?: "", fieldName, val) < 0)
       exit(-40);
   }
 
