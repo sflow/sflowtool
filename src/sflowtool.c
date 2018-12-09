@@ -230,6 +230,7 @@ typedef struct _SFConfig {
   char *writePcapFile;
   EnumSFLFormat outputFormat;
   int jsonIndent;
+  int jsonStart;
   int jsonListStart;
   int outputDepth;
   SFFieldList outputFieldList;
@@ -958,12 +959,14 @@ static void json_indent() {
 }
 
 static void json_start(char *fname, char bracket) {
-  if(sfConfig.jsonListStart == NO)
-    printf(",");
-  json_indent();
+  if(sfConfig.jsonStart == NO) {
+    if(sfConfig.jsonListStart == NO)
+      putchar(',');
+    json_indent();
+  }
   if(fname)
     printf("\"%s\":", fname);
-  printf("%c", bracket);
+  putchar(bracket);
   sfConfig.outputDepth++;
   /* indicate start of list */
   sfConfig.jsonListStart = YES;
@@ -1034,7 +1037,7 @@ static void sf_logf(SFSample *sample, char *fieldPrefix, char *fieldName, char *
 
   if(sfConfig.outputFormat == SFLFMT_JSON) {
     if(sfConfig.jsonListStart == NO)
-      printf(",");
+      putchar(',');
     else
       sfConfig.jsonListStart = NO;
     
@@ -5133,7 +5136,7 @@ static void receiveSFlowDatagram(SFSample *sample)
     int exceptionVal;
     sample->readTimestamp = (long)time(NULL);
     if(sfConfig.outputFormat == SFLFMT_JSON) {
-      sfConfig.jsonListStart = YES;
+      sfConfig.jsonStart = YES;
       json_start_ob(NULL);
     }
     else {
@@ -5792,11 +5795,11 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -6                 -  listen on IPv6 socket only\n");
   fprintf(ERROUT, "   +4                 -  listen on both IPv4 and IPv6 sockets\n");
   fprintf(ERROUT, "\n");
-  fprintf(ERROUT, "=============== Advanced Tools ==========================================\n");
-  fprintf(ERROUT, "| sFlow-RT (real time)  - https://sflow-rt.com                          |\n");
-  fprintf(ERROUT, "| sFlowTrend (FREE)     - https://inmon.com/products/sFlowTrend.php     |\n");
-  fprintf(ERROUT, "| Traffic Sentinel      - https://inmon.com/support/trafficsentinel.php |\n");
-  fprintf(ERROUT, "=========================================================================\n");
+  fprintf(ERROUT, "=============== Advanced Tools ===========================================\n");
+  fprintf(ERROUT, "| sFlow-RT (real time)  - https://sflow-rt.com                           |\n");
+  fprintf(ERROUT, "| sFlowTrend (FREE)     - https://inmon.com/products/sFlowTrend.php      |\n");
+  fprintf(ERROUT, "| Traffic Sentinel      - https://inmon.com/products/trafficsentinel.php |\n");
+  fprintf(ERROUT, "==========================================================================\n");
 }
 
 /*_________________---------------------------__________________
