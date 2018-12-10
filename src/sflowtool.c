@@ -5165,6 +5165,10 @@ static void receiveSFlowDatagram(SFSample *sample)
     if(sfConfig.outputFormat == SFLFMT_JSON) {
       /* reset depth in case an exception left it hanging */
       sfConfig.outputDepth = 0;
+      /* add blank line if pretty-printing */
+      if(sfConfig.jsonIndent)
+	putchar('\n');
+      
     }
     else if(sfConfig.outputFormat == SFLFMT_LINE_CUSTOM) {
       /* clear datagram-scoped field values */
