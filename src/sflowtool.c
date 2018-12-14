@@ -193,7 +193,7 @@ typedef enum { SFLFMT_FULL=0, SFLFMT_PCAP, SFLFMT_LINE, SFLFMT_LINE_CUSTOM, SFLF
 #define SA_MAX_SFLOW_PKT_SIZ 65536
 
 #define SA_MAX_FIELDNAME_LEN 64
-  
+
 #define MAX_STRBUF_LEN 2048
 typedef struct {
   int cap;
@@ -989,7 +989,7 @@ static void sf_log_context(SFSample *sample) {
 	 printTag(sample->s.sampleType, &tag1),
 	 printTag(sample->s.elementType, &tag2));
 }
-		    
+
 static void sf_log(SFSample *sample, char *fmt, ...) {
   /* don't print anything here unless exporting in FULL or SCRIPT formats */
 
@@ -1026,7 +1026,7 @@ static void sf_logf(SFSample *sample, char *fieldPrefix, char *fieldName, char *
       putchar(',');
     else
       sfConfig.jsonListStart = NO;
-    
+
     json_indent();
     /* always print as JSON strings, since value may be 64-bit integer */
     if(printf("\"%s%s\":\"%s\"", fieldPrefix ?: "", fieldName, val) < 0)
@@ -2515,7 +2515,7 @@ static void readExtendedUser(SFSample *sample)
   uint32_t dst_user_charset;
   uint32_t dst_user_len;
   char dst_user[SA_MAX_EXTENDED_USER_LEN+1];
-  
+
   sf_logf(sample, NULL, "extendedType", "USER");
 
   if(sample->datagramVersion >= 5) {
@@ -3464,7 +3464,7 @@ static void readFlowSample_v2v4(SFSample *sample)
 
   if(sfConfig.outputFormat == SFLFMT_JSON)
     json_end_ob();
-  
+
   sample->s.extended_data_tag = 0;
   {
     uint32_t x;
@@ -3940,7 +3940,7 @@ static void readCounters_host_hid(SFSample *sample)
     sf_logf(sample, NULL, "os_release", os_release);
   }
 }
- 
+
 /*_________________---------------------------__________________
   _________________  readCounters_adaptors    __________________
   -----------------___________________________------------------
@@ -4620,7 +4620,7 @@ static void sf_logf_SFP(SFSample *sample, char *field, uint32_t lane, uint32_t v
   sprintf(fieldName, "%s.%u", field, lane);
   sf_logf_U32_formatted(sample, "sfp_lane_", fieldName, "%u", val32);
 }
-  
+
 static void readCounters_SFP(SFSample *sample)
 {
   uint32_t num_lanes,ll;
@@ -4685,7 +4685,7 @@ static void readCountersSample_v2v4(SFSample *sample)
     json_start_ar("elements");
     json_start_ob(NULL);
   }
-  
+
   /* first see if we should read the generic stats */
   switch(sample->s.counterBlockVersion) {
   case INMCOUNTERSVERSION_GENERIC:
@@ -4759,12 +4759,12 @@ static void readCountersSample(SFSample *sample, int expanded)
     sample->s.ds_index = samplerId & 0x00ffffff;
   }
   sf_logf(sample, NULL, "sourceId", printDataSource(sample->s.ds_class, sample->s.ds_index, &buf));
-  
+
   num_elements = getData32(sample);
 
   if(sfConfig.outputFormat == SFLFMT_JSON)
     json_start_ar("elements");
-  
+
   for(uint32_t el = 0; el < num_elements; el++) {
     uint32_t tag, length;
     uint8_t *start;
@@ -4776,7 +4776,7 @@ static void readCountersSample(SFSample *sample, int expanded)
     sf_logf(sample, NULL, "counterBlock_tag", printTag(tag, &buf));
     length = getData32(sample);
     start = (uint8_t *)sample->datap;
-    
+
     switch(tag) {
     case SFLCOUNTERS_GENERIC: readCounters_generic(sample); break;
     case SFLCOUNTERS_ETHERNET: readCounters_ethernet(sample); break;
@@ -4827,7 +4827,7 @@ static void readCountersSample(SFSample *sample, int expanded)
   lengthCheck(sample, "counters_sample", sampleStart, sampleLength);
   if(sfConfig.outputFormat == SFLFMT_JSON)
     json_end_ar();
-  
+
   switch(sfConfig.outputFormat) {
   case SFLFMT_LINE:
     writeCountersLine(sample);
@@ -5012,7 +5012,7 @@ static void readSFlowDatagram(SFSample *sample)
   sf_logf_U32(sample, "unixSecondsUTC", sample->readTimestamp);
   sf_logf(sample, NULL, "localtime", printTimestamp(sample->readTimestamp, &buf));
   if(sample->pcapTimestamp) {
-    /* thanks to Richard Clayton for this bugfix */    
+    /* thanks to Richard Clayton for this bugfix */
     sf_logf(sample, NULL, "pcapTimestamp", printTimestamp(sample->pcapTimestamp, &buf));
   }
 
@@ -5059,7 +5059,7 @@ static void readSFlowDatagram(SFSample *sample)
       /* just read the tag, then call the approriate decode fn */
       sample->s.elementType = 0;
       sample->s.sampleType = getData32(sample);
-      
+
       if(sfConfig.outputFormat == SFLFMT_JSON) {
 	json_start_ob(NULL);
       }
@@ -5172,7 +5172,7 @@ static void receiveSFlowDatagram(SFSample *sample)
       /* add blank line if pretty-printing */
       if(sfConfig.jsonIndent)
 	putchar('\n');
-      
+
     }
     else if(sfConfig.outputFormat == SFLFMT_LINE_CUSTOM) {
       /* clear datagram-scoped field values */
