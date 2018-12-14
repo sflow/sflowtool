@@ -763,7 +763,7 @@ static int SFStr_append_hex(SFStr *sb, u_char *hex, int nbytes, int prefix, int 
 
   for(int ii = 0; ii < nbytes; ii++) {
     if(sep && ii) sb->str[sb->len++] = sep;
-    uint16_t word = lookup[hex[ii]];
+    uint16_t word = ntohs(lookup[hex[ii]]);
     sb->str[sb->len++] = word >> 8;
     sb->str[sb->len++] = word & 0xFF;
   }
