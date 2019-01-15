@@ -5,7 +5,7 @@ Release: 1%{?dist}
 License: https://www.inmon.com/technology/sflowlicense.txt
 Group: Productivity/Networking/Diagnostic
 URL: https://inmon.com/technology/sflowTools.php
-Source: https://github.com/sflow/sflowtool
+Source: https://github.com/sflow/%{name}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 %description
@@ -17,15 +17,10 @@ provide customized analysis and reporting and for integrating with other tools
 such as Graphite or rrdtool.
 
 %prep
-
 %setup -q -n %{name}-%{version}
 
 %build
-%configure \
-                --prefix=%{_prefix} \
-                --sysconfdir=%{_sysconfdir} \
-                --infodir=%{_infodir} \
-                --mandir=%{_mandir}
+%configure
 make
 
 %install
@@ -36,9 +31,10 @@ rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root)
-/usr/bin/sflowtool
-%doc AUTHORS INSTALL NEWS ChangeLog README
+%doc AUTHORS NEWS ChangeLog README
+%license COPYING
+%{_bindir}/sflowtool
 
 %changelog
-* Mon Jun 4 2012 Neil McKee <neil.mckee@inmon.com>> 3.26
-Initial spec to build sflowtool RPM
+* Mon Jun 4 2012 Neil McKee <neil.mckee@inmon.com> - 3.26-1
+- Initial spec to build sflowtool RPM
