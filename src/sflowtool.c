@@ -5464,6 +5464,11 @@ static int readPcapPacket(FILE *file)
     hdr.len = MyByteSwap32(hdr.len);
   }
 
+  if(SA_MAX_PCAP_PKT < hdr.caplen || hdr.caplen<0 || hdr.len<0) {
+    fprintf(ERROUT, "incomplete datagram (pcap snaplen negative or too long than buffer)\n");
+    return 0;
+  }
+
   if(fread(buf, hdr.caplen, 1, file) != 1) {
     fprintf(ERROUT, "unable to read pcap packet from %s : %s\n", sfConfig.readPcapFileName, strerror(errno));
     exit(-34);
