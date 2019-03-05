@@ -1800,7 +1800,7 @@ static void writePcapPacket(SFSample *sample) {
   char buf[SA_MAX_PCAP_PKT];
   int bytes = 0;
   struct pcap_pkthdr hdr;
-  hdr.ts_sec = (uint32_t)time(NULL);
+  hdr.ts_sec = sample->pcapTimestamp ?: sample->readTimestamp;
   hdr.ts_usec = 0;
   hdr.len = sample->s.sampledPacketSize;
   hdr.caplen = sample->s.headerLen;
