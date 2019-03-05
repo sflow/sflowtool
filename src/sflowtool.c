@@ -5464,6 +5464,13 @@ static int readPcapPacket(FILE *file)
     hdr.len = MyByteSwap32(hdr.len);
   }
 
+  /* Protect against possible buffer overrun from corrupted pcap file.
+     Thanks to Naoki Ogawa for spotting this. */
+  if(hdr.caplen > SA_MAX_PCAP_PKT) {
+    fprintf(ERROUT, "pcap %s : capture-len (%u) too long for read buffer\n", sfConfig.readPcapFileName, hdr.caplen);
+    return 0;
+  }
+
   if(fread(buf, hdr.caplen, 1, file) != 1) {
     fprintf(ERROUT, "unable to read pcap packet from %s : %s\n", sfConfig.readPcapFileName, strerror(errno));
     exit(-34);
