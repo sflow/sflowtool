@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2018 InMon Corp. Licensed under the terms of the InMon sFlow licence: */
+/* Copyright (c) 2002-2019 InMon Corp. Licensed under the terms of the InMon sFlow licence: */
 /* http://www.inmon.com/technology/sflowlicense.txt */
 
 #if defined(__cplusplus)
@@ -755,7 +755,7 @@ static int SFStr_append_hex(SFStr *sb, u_char *hex, int nbytes, int prefix, int 
   }
 
   sb->str[sb->len] = '\0';
-  return (nbytes == roomForBytes);
+  return (nbytes < roomForBytes);
 }
 
 static int SFStr_append_array32(SFStr *sb, uint32_t *array32, int n, int net_byte_order, char sep) {
@@ -810,9 +810,10 @@ static int SFStr_append_ip(SFStr *sb, uint8_t *ip) {
 
 static int SFStr_append_ip6(SFStr *sb, uint8_t *ip6) {
   for(int i = 0; i < 16; i += 2) {
-    if(SFStr_append_hex(sb, (ip6+i), 2, NO, NO, 0) == NO)
+    if(i > 0
+       && SFStr_append(sb, ":") == NO)
       return NO;
-    if(SFStr_append(sb, ":") == NO)
+    if(SFStr_append_hex(sb, (ip6+i), 2, NO, NO, 0) == NO)
       return NO;
   }
   return YES;
@@ -5761,7 +5762,7 @@ static int setNetFlowCollector(char *host)
 
 static void instructions(char *command)
 {
-  fprintf(ERROUT,"Copyright (c) InMon Corporation 2000-2011 ALL RIGHTS RESERVED\n");
+  fprintf(ERROUT,"Copyright (c) InMon Corporation 2000-2019 ALL RIGHTS RESERVED\n");
   fprintf(ERROUT,"This software provided with NO WARRANTY WHATSOEVER\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"Usage: %s [-p port]\n", command);
