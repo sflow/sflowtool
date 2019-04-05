@@ -237,7 +237,9 @@ The second column is the agent address. The remaining columns are:
 
 To request a custom line output, use the -L <fields> option, like this:
 
-% sflowtool -L localtime,srcIP,dstIP
+    % sflowtool -L localtime,srcIP,dstIP,srcIP6,dstIP6
+    2019-04-05T19:51:59+0900,10.0.0.1,10.0.0.254,,
+    2019-04-05T19:51:59+0900,,,2001:0db8:0000:0000:0000:0000:0000:0001,2001:0db8:0000:0000:0000:0000:0000:ffff
 
 The available keywords are as follows
 
