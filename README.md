@@ -233,9 +233,39 @@ The second column is the agent address. The remaining columns are:
     IP_size
     sampling_rate
 
+## line-by-line csv output(custom)
+
 To request a custom line output, use the -L <fields> option, like this:
 
 % sflowtool -L localtime,srcIP,dstIP
+
+The available keywords are as follows
+
+|keyword         |description|
+|:---------------|-----------|
+|localtime|timestamp from local clock<br>|
+|pcapTimestamp|timestamp on Pcap file(only using "-r")|
+|agent|exporter id|
+|meanSkipCount|sampling rate|
+|inputPort|ifindex at input port|
+|outputPort|ifindex at output port|
+|sampledPacketSize||
+|IPSize||
+|srcIP|only IPv4|
+|dstIP|only IPv4|
+|srcIP6|only IPv6|
+|dstIP6|only IPv6|
+|IPProtocol||
+|IPTOS|only IPv4|
+|IPTTL||
+|priority|only IPv6|
+|ICMPType|only IPProtocol=1|
+|ICMPCode|only IPProtocol=1|
+|TCPSrcPort|only IPProtocol=6|
+|TCPDstPort|only IPProtocol=6|
+|TCPFlags|only IPProtocol=6|
+|UDPSrcPort|only IPProtocol=17|
+|UDPDstPort|only IPProtocol=17|
 
 # grep-friendly output
 
