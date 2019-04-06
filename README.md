@@ -233,7 +233,7 @@ The second column is the agent address. The remaining columns are:
     IP_size
     sampling_rate
 
-## line-by-line csv output(custom)
+# custom line-by-line output by listing fields
 
 To request a custom line output, use the -L <fields> option, like this:
 
@@ -241,12 +241,12 @@ To request a custom line output, use the -L <fields> option, like this:
     2019-04-05T19:51:59+0900,10.0.0.1,10.0.0.254,,
     2019-04-05T19:51:59+0900,,,2001:0db8:0000:0000:0000:0000:0000:0001,2001:0db8:0000:0000:0000:0000:0000:ffff
 
-The available keywords are as follows
+The available fields are as follows
 
-|keyword         |description|
-|:---------------|-----------|
-|localtime|timestamp from local clock<br>|
-|pcapTimestamp|timestamp on Pcap file(only using "-r")|
+|fields         |description|
+|:---------------|:----------|
+|localtime|timestamp from local clock for each sample|
+|pcapTimestamp|timestamp on Pcap record(only using "-r")|
 |agent|exporter id|
 |meanSkipCount|sampling rate|
 |inputPort|ifindex at input port|
