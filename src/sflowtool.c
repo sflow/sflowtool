@@ -946,9 +946,11 @@ static void json_indent() {
 }
 
 static void json_start(char *fname, char bracket) {
-  if(sfConfig.jsonStart == NO) {
-    if(sfConfig.jsonListStart == NO)
-      putchar(',');
+  if(sfConfig.jsonStart) {
+    sfConfig.jsonStart = NO;
+  }
+  else if(sfConfig.jsonListStart == NO) {
+    putchar(',');
     json_indent();
   }
   if(fname)
