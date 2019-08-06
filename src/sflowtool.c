@@ -2075,7 +2075,7 @@ static void sendNetFlowV5Datagram(SFSample *sample)
   else {
     /* set the sampling_interval header field too (used to be a 16-bit reserved field) */
     uint16_t samp_ival = (uint16_t)sample->s.meanSkipCount;
-    pkt.hdr.sampling_interval = htons(samp_ival & 0x4000);
+    pkt.hdr.sampling_interval = htons(samp_ival | 0x4000);
     pkt.flow.frames = htonl(1);
     pkt.flow.bytes = htonl(bytes);
   }
