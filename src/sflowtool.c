@@ -2170,8 +2170,7 @@ static void sendNetFlowV9Datagram(SFSample *sample)
   }
   else {
     /* set the sampling_interval header field */
-    uint16_t samp_ival = (uint16_t)sample->s.meanSkipCount;
-    pkt.data.flow.samplingInterval = htonl(samp_ival & 0x4000);
+    pkt.data.flow.samplingInterval = htonl(sample->s.meanSkipCount);
     pkt.data.flow.packets = htonl(1);
     pkt.data.flow.bytes = htonl(bytes);
   }
