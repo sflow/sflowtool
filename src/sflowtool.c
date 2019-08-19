@@ -1324,6 +1324,7 @@ static void decodeLinkLayer(SFSample *sample)
   uint8_t *end = start + sample->s.headerLen;
   uint8_t *ptr = start;
   uint16_t type_len;
+  uint32_t vlanDepth=0;
   SFStr buf;
 
   /* assume not found */
@@ -1341,7 +1342,11 @@ static void decodeLinkLayer(SFSample *sample)
   type_len = (ptr[0] << 8) + ptr[1];
   ptr += 2;
 
-  if(type_len == 0x8100) {
+  while(type_len == 0x8100
+	|| type_len == 0x88A8
+	|| type_len == 0x9100
+	|| type_len == 0x9200
+	|| type_len == 0x9300) {
     if((end - ptr) < 4) return; /* not enough for an 802.1Q header */
     /* VLAN  - next two bytes */
     uint32_t vlanData = (ptr[0] << 8) + ptr[1];
@@ -1352,12 +1357,23 @@ static void decodeLinkLayer(SFSample *sample)
     /* |   pri  | c |         vlan-id        | */
     /*  ------------------------------------- */
     /* [priority = 3bits] [Canonical Format Flag = 1bit] [vlan-id = 12 bits] */
-    sf_logf_U32(sample, "decodedVLAN", vlan);
-    sf_logf_U32(sample, "decodedPriority", priority);
+    if(vlanDepth == 0) {
+      sf_logf_U32(sample, "decodedVLAN", vlan);
+      sf_logf_U32(sample, "decodedPriority", priority);
+    }
+    else {
+      /* 802.1AD / Q-in-Q: indicate VLAN depth */
+      char dotQField[64];
+      sprintf(dotQField, "decodedVLAN.%u", vlanDepth);
+      sf_logf_U32(sample, dotQField, vlan);
+      sprintf(dotQField, "decodedPriority.%u", vlanDepth);
+      sf_logf_U32(sample, dotQField, priority);
+    }
     sample->s.in_vlan = vlan;
     /* now get the type_len again (next two bytes) */
     type_len = (ptr[0] << 8) + ptr[1];
     ptr += 2;
+    vlanDepth++;
   }
 
   /* now we're just looking for IP */
@@ -5354,9 +5370,12 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
     ptr += 2;
     break;
   }
-
+ 
   while(type_len == 0x8100
-	|| type_len == 0x9100) {
+	|| type_len == 0x88A8
+	|| type_len == 0x9100
+	|| type_len == 0x9200
+	|| type_len == 0x9300) {
     /* VLAN  - next two bytes */
     /*  _____________________________________ */
     /* |   pri  | c |         vlan-id        | */
