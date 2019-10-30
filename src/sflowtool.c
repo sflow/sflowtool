@@ -1724,12 +1724,11 @@ static void decodeIPV6(SFSample *sample)
 	  /* nextHeader == 50 => encryption - don't bother coz we'll not be able to read any further */
 	  nextHeader == 51 || /* auth */
 	  nextHeader == 60) { /* destination options */
-      uint32_t optionLen, skip;
+      uint32_t optionLen;
       sf_logf_U32(sample, "IP6HeaderExtension", nextHeader);
       nextHeader = ptr[0];
       optionLen = 8 * (ptr[1] + 1);  /* second byte gives option len in 8-byte chunks, not counting first 8 */
-      skip = optionLen - 2;
-      ptr += skip;
+      ptr += optionLen;
       if(ptr > end) return; /* ran off the end of the header */
     }
 
