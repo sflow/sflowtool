@@ -697,6 +697,7 @@ enum SFL_sample_tag {
   SFLCOUNTERS_SAMPLE = 2,          /* enterprise = 0 : format = 2 */
   SFLFLOW_SAMPLE_EXPANDED = 3,     /* enterprise = 0 : format = 3 */
   SFLCOUNTERS_SAMPLE_EXPANDED = 4, /* enterprise = 0 : format = 4 */
+  SFLEVENT_DISCARDED_PACKET = 5,   /* enterprise = 0 : format = 5 */
   SFLRTMETRIC = ((4300 << 12) + 1002),
   SFLRTFLOW = ((4300 << 12) + 1003)
 };
@@ -1626,6 +1627,24 @@ typedef struct _SFLCounters_sample_expanded {
   uint32_t num_elements;
   SFLCounters_sample_element *elements;
 } SFLCounters_sample_expanded;
+
+#define SFL_DROP(name, code) SFLDrop_ ## name=code,
+typedef enum {
+#include "sflow_drop.h"
+} EnumSFLDropReason;
+#undef SFL_DROP
+
+typedef struct _SFLEvent_discarded_packet {
+  uint32_t sequence_number;
+  uint32_t ds_class; /* EXPANDED */
+  uint32_t ds_index; /* EXPANDED */
+  uint32_t drops;
+  uint32_t input; /* ifIndex */
+  uint32_t output; /* ifIndex */
+  EnumSFLDropReason reason;
+  uint32_t num_elements;
+  SFLFlow_sample_element *elements;
+} SFLEvent_discarded_packet;
 
 #define SFLADD_ELEMENT(_sm, _el) do { (_el)->nxt = (_sm)->elements; (_sm)->elements = (_el); } while(0)
 
