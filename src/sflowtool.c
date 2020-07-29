@@ -187,7 +187,17 @@ typedef union _SFSockAddr {
   struct sockaddr_in6 sa6;
 } SFSockAddr;
 
-typedef enum { SFLFMT_FULL=0, SFLFMT_PCAP, SFLFMT_LINE, SFLFMT_LINE_CUSTOM, SFLFMT_NETFLOW, SFLFMT_FWD, SFLFMT_CLF, SFLFMT_SCRIPT, SFLFMT_JSON } EnumSFLFormat;
+typedef enum { SFLFMT_FULL=0,
+	       SFLFMT_PCAP,
+	       SFLFMT_PCAP_DISCARD,
+	       SFLFMT_LINE,
+	       SFLFMT_LINE_CUSTOM,
+	       SFLFMT_NETFLOW,
+	       SFLFMT_FWD,
+	       SFLFMT_CLF,
+	       SFLFMT_SCRIPT,
+	       SFLFMT_JSON,
+} EnumSFLFormat;
 
 #define SA_MAX_PCAP_PKT 65536
 #define SA_MAX_SFLOW_PKT_SIZ 65536
@@ -3563,6 +3573,8 @@ static void readFlowSample_v2v4(SFSample *sample)
       /* if we are writing tcpdump format, write the next packet record now */
       writePcapPacket(sample);
       break;
+    case SFLFMT_PCAP_DISCARD:
+      break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
       writeFlowLine(sample);
@@ -3726,6 +3738,8 @@ static void readFlowSample(SFSample *sample, int expanded)
       /* if we are writing tcpdump format, write the next packet record now */
       writePcapPacket(sample);
       break;
+    case SFLFMT_PCAP_DISCARD:
+      break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
       writeFlowLine(sample);
@@ -3848,8 +3862,9 @@ static void readDiscardSample(SFSample *sample)
     case SFLFMT_NETFLOW:
       break;
     case SFLFMT_PCAP:
+      break;
+    case SFLFMT_PCAP_DISCARD:
       /* if we are writing tcpdump format, write the next packet record now */
-      // TODO: use -T option to send as PCAP?
       writePcapPacket(sample);
       break;
     case SFLFMT_LINE:
@@ -6046,6 +6061,7 @@ static void process_command_line(int argc, char *argv[])
     /* check first that options with/without arguments are correct */
     switch(in) {
     case 't':
+    case 'T':
     case 'l':
     case 'g':
     case 'j':
@@ -6079,6 +6095,7 @@ static void process_command_line(int argc, char *argv[])
     switch(in) {
     case 'p': sfConfig.sFlowInputPort = atoi(argv[arg++]); break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
+    case 'T': sfConfig.outputFormat = SFLFMT_PCAP_DISCARD; break;
     case 'l': sfConfig.outputFormat = SFLFMT_LINE; break;
     case 'H': sfConfig.outputFormat = SFLFMT_CLF; break;
     case 'g': sfConfig.outputFormat = SFLFMT_SCRIPT; break;
@@ -6184,7 +6201,9 @@ int main(int argc, char *argv[])
 
 #ifdef _WIN32
   /* on windows we need to tell stdout if we want it to be binary */
-  if(sfConfig.outputFormat == SFLFMT_PCAP) setmode(1, O_BINARY);
+  if(sfConfig.outputFormat == SFLFMT_PCAP
+     || sfConfig.outputFormat == SFLFMT_PCAP_DISCARD)
+    setmode(1, O_BINARY);
 #endif
 
   /* reading from file or socket? */
@@ -6221,7 +6240,9 @@ int main(int argc, char *argv[])
     openNetFlowSocket();
 
   /* if tcpdump format, write the header */
-  if(sfConfig.outputFormat == SFLFMT_PCAP) writePcapHeader();
+  if(sfConfig.outputFormat == SFLFMT_PCAP
+     || sfConfig.outputFormat == SFLFMT_PCAP_DISCARD)
+    writePcapHeader();
   if(sfConfig.readPcapFile) {
     /* just use a blocking read */
     while(readPcapPacket(sfConfig.readPcapFile));
