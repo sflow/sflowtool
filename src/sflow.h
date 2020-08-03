@@ -602,6 +602,14 @@ typedef struct _SFLExtended_decap {
     uint32_t innerHeaderOffset;
 } SFLExtended_decap;
 
+/* Software function */
+/* Name of software function generating this event */
+/* opaque = flow_data; enterprise = 0; format = 1038 */
+typedef struct _SFLExtended_function {
+  SFLString symbol;
+} SFLExtended_function;
+#define SFL_MAX_FUNCTION_SYMBOL_LEN 64
+
 enum SFLFlow_type_tag {
   /* enterprise = 0, format = ... */
   SFLFLOW_HEADER    = 1,      /* Packet headers are sampled */
@@ -635,6 +643,7 @@ enum SFLFlow_type_tag {
     SFLFLOW_EX_DECAP_IN        = 1028,
     SFLFLOW_EX_VNI_OUT         = 1029,
     SFLFLOW_EX_VNI_IN          = 1030,
+  SFLFLOW_EX_FUNCTION          = 1038,
   SFLFLOW_EX_SOCKET4       = 2100,
   SFLFLOW_EX_SOCKET6       = 2101,
   SFLFLOW_EX_PROXYSOCKET4  = 2102,
@@ -683,6 +692,7 @@ typedef union _SFLFlow_type {
   SFLExtended_decap tunnel_decap;
   SFLExtended_TCP_info tcp_info;
   SFLExtended_entities entities;
+  SFLExtended_function function;
 } SFLFlow_type;
 
 typedef struct _SFLFlow_sample_element {

@@ -3481,6 +3481,20 @@ static void readExtendedEntities(SFSample *sample)
   sf_log_next32(sample, "entities_dst_index");
 }
 
+/*_________________----------------------------__________________
+  _________________    readExtendedFunction    __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedFunction(SFSample *sample)
+{
+  sf_logf(sample, "extendedType", "function");
+  char fnSymbol[SFL_MAX_FUNCTION_SYMBOL_LEN+1];
+  if(getString(sample, fnSymbol, SFL_MAX_FUNCTION_SYMBOL_LEN) > 0) {
+    sf_logf(sample, "symbol", fnSymbol);
+  }
+}
+
 /*_________________---------------------------__________________
   _________________    readFlowSample_v2v4    __________________
   -----------------___________________________------------------
@@ -3843,6 +3857,7 @@ static void readDiscardSample(SFSample *sample)
       // TODO: separate fn for flow-sample elements?
       switch(tag) {
       case SFLFLOW_HEADER:     readFlowSample_header(sample); break;
+      case SFLFLOW_EX_FUNCTION: readExtendedFunction(sample); break;
       default: skipTLVRecord(sample, tag, length, "discard_sample_element"); break;
       }
       lengthCheck(sample, "discard_sample_element", start, length);
