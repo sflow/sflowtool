@@ -48,6 +48,16 @@ SFL_DROP(unknown_l3_exception,286) /* group l3_exceptions */
 SFL_DROP(unknown_buffer,287) /* group buffer_drops */
 SFL_DROP(unknown_tunnel,288) /* group tunnel_drops */
 SFL_DROP(unknown_l4,289)
-  
- 
+SFL_DROP(sip_is_unspecified,290)
+SFL_DROP(mlag_port_isolation,291)
+SFL_DROP(blackhole_arp_neigh,292)
+SFL_DROP(src_mac_is_dmac,293)
+SFL_DROP(dmac_is_reserved,294)
+SFL_DROP(sip_is_class_e,295)
+SFL_DROP(mc_dmac_mismatch,296)
+SFL_DROP(sip_is_dip,297)
+SFL_DROP(dip_is_local_network,298)
+SFL_DROP(dip_is_link_local,299)
+SFL_DROP(overlay_smac_is_dmac,300)
+
 
