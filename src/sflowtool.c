@@ -3482,6 +3482,17 @@ static void readExtendedEntities(SFSample *sample)
 }
 
 /*_________________----------------------------__________________
+  _________________    readExtendedEgressQueue __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedEgressQueue(SFSample *sample)
+{
+  sf_logf(sample, "extendedType", "egress_queue");
+  sf_log_next32(sample, "egress_queue_id");
+}
+
+/*_________________----------------------------__________________
   _________________    readExtendedFunction    __________________
   -----------------____________________________------------------
 */
@@ -3493,6 +3504,28 @@ static void readExtendedFunction(SFSample *sample)
   if(getString(sample, fnSymbol, SFL_MAX_FUNCTION_SYMBOL_LEN) > 0) {
     sf_logf(sample, "symbol", fnSymbol);
   }
+}
+
+/*_________________----------------------------__________________
+  _________________  readExtendedTransitDelay  __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedTransitDelay(SFSample *sample)
+{
+  sf_logf(sample, "extendedType", "transit_delay");
+  sf_log_next32(sample, "transit_delay_nS");
+}
+
+/*_________________----------------------------__________________
+  _________________  readExtendedQueueDepth    __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedQueueDepth(SFSample *sample)
+{
+  sf_logf(sample, "extendedType", "queue_depth");
+  sf_log_next32(sample, "queue_depth_bytes");
 }
 
 /*_________________---------------------------__________________
@@ -3731,6 +3764,9 @@ static void readFlowSample(SFSample *sample, int expanded)
       case SFLFLOW_EX_VNI_IN: readExtendedVNI(sample, "in_"); break;
       case SFLFLOW_EX_TCP_INFO: readExtendedTCPInfo(sample); break;
       case SFLFLOW_EX_ENTITIES: readExtendedEntities(sample); break;
+      case SFLFLOW_EX_EGRESS_Q: readExtendedEgressQueue(sample); break;
+      case SFLFLOW_EX_TRANSIT: readExtendedTransitDelay(sample); break;
+      case SFLFLOW_EX_Q_DEPTH: readExtendedQueueDepth(sample); break;
       default: skipTLVRecord(sample, tag, length, "flow_sample_element"); break;
       }
       lengthCheck(sample, "flow_sample_element", start, length);
@@ -3858,6 +3894,7 @@ static void readDiscardSample(SFSample *sample)
       switch(tag) {
       case SFLFLOW_HEADER:     readFlowSample_header(sample); break;
       case SFLFLOW_EX_FUNCTION: readExtendedFunction(sample); break;
+      case SFLFLOW_EX_EGRESS_Q: readExtendedEgressQueue(sample); break;
       default: skipTLVRecord(sample, tag, length, "discard_sample_element"); break;
       }
       lengthCheck(sample, "discard_sample_element", start, length);

@@ -602,6 +602,14 @@ typedef struct _SFLExtended_decap {
     uint32_t innerHeaderOffset;
 } SFLExtended_decap;
 
+/* Selected egress queue */
+/* Output port number must be provided in enclosing structure */
+/* opaque = flow_data; enterprise = 0; format = 1036 */
+typedef struct {
+  unsigned int queue;  /* eqress queue number selected for sampled packet */
+} SFLExtended_egress_queue;
+#define XDRSIZ_SFLEXTENDED_EGRESS_Q 4
+
 /* Software function */
 /* Name of software function generating this event */
 /* opaque = flow_data; enterprise = 0; format = 1038 */
@@ -609,6 +617,22 @@ typedef struct _SFLExtended_function {
   SFLString symbol;
 } SFLExtended_function;
 #define SFL_MAX_FUNCTION_SYMBOL_LEN 64
+
+/* Delay for sampled packet traversing switch */
+/* opaque = flow_data; enterprise = 0; format = 1039 */
+typedef struct {
+  unsigned int delay; /* transit delay in nanoseconds
+			 0xffffffff indicates value >= 0xffffffff */
+} SFLExtended_transit_delay;
+#define XDRSIZ_SFLEXTENDED_TRANSIT 4
+
+/* Queue depth for sampled packet traversing switch */
+/* extended_egress_queue structure must be included */
+/* opaque = flow_data; enterprise = 0; format = 1040 */
+typedef struct {
+  unsigned int depth;   /* queue depth in bytes */
+} SFLExtended_queue_depth;
+#define XDRSIZ_SFLEXTENDED_Q_DEPTH 4
 
 enum SFLFlow_type_tag {
   /* enterprise = 0, format = ... */
@@ -643,7 +667,10 @@ enum SFLFlow_type_tag {
     SFLFLOW_EX_DECAP_IN        = 1028,
     SFLFLOW_EX_VNI_OUT         = 1029,
     SFLFLOW_EX_VNI_IN          = 1030,
+  SFLFLOW_EX_EGRESS_Q          = 1036,
   SFLFLOW_EX_FUNCTION          = 1038,
+  SFLFLOW_EX_TRANSIT           = 1039,
+  SFLFLOW_EX_Q_DEPTH           = 1040,
   SFLFLOW_EX_SOCKET4       = 2100,
   SFLFLOW_EX_SOCKET6       = 2101,
   SFLFLOW_EX_PROXYSOCKET4  = 2102,
@@ -693,6 +720,9 @@ typedef union _SFLFlow_type {
   SFLExtended_TCP_info tcp_info;
   SFLExtended_entities entities;
   SFLExtended_function function;
+  SFLExtended_egress_queue egress_queue;
+  SFLExtended_queue_depth queue_depth;
+  SFLExtended_transit_delay transit_delay;
 } SFLFlow_type;
 
 typedef struct _SFLFlow_sample_element {
