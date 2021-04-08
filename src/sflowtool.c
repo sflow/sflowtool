@@ -2971,7 +2971,7 @@ static void readFlowSample_header(SFSample *sample)
     sf_logf_U32_formatted(sample, NULL, "IPSize", "%d", sample->s.sampledPacketSize - sample->s.stripped - sample->s.offsetToIPV6);
     decodeIPV6(sample);
   }
-
+  sf_logf_U32(sample, "ethernet_type", sample->s.eth_type);
 }
 
 /*_________________---------------------------__________________
