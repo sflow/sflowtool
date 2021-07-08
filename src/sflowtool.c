@@ -2958,7 +2958,7 @@ static void readFlowSample_header(SFSample *sample)
     break;
   default:
     fprintf(ERROUT, "undefined headerProtocol = %d\n", sample->s.headerProtocol);
-    exit(-12);
+    break;
   }
 
   if(sample->s.gotIPV4) {
