@@ -6052,7 +6052,8 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -H                 -  output HTTP common log file format\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"tcpdump output:\n");
-  fprintf(ERROUT, "   -t                 -  output in binary tcpdump(1) format\n");
+  fprintf(ERROUT, "   -t                 -  output packet samples in binary tcpdump(1) format\n");
+  fprintf(ERROUT, "   -T                 -  output discard samples in binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -r file            -  read binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -x                 -  remove all IPV4 content\n");
   fprintf(ERROUT,"\n");
