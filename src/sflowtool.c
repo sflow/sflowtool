@@ -40,6 +40,8 @@ extern "C" {
 
 #include "sflow.h" /* sFlow v5 */
 #include "sflow_v2v4.h" /* sFlow v2/4 */
+#include "assert.h"
+#include "sflow_xdr.h"
 
 /* If the platform is Linux, enable the source-spoofing feature too. */
 #ifdef linux
@@ -197,6 +199,7 @@ typedef enum { SFLFMT_FULL=0,
 	       SFLFMT_CLF,
 	       SFLFMT_SCRIPT,
 	       SFLFMT_JSON,
+	       SFLFMT_SFLOW
 } EnumSFLFormat;
 
 #define SA_MAX_PCAP_PKT 65536
@@ -238,15 +241,22 @@ typedef struct _SFConfig {
   char *readPcapFileName;
   FILE *readPcapFile;
   struct pcap_file_header readPcapHdr;
-  char *writePcapFile;
+  int pcapSwap;
+  /* sFlow-from-pcap generator */
+  uint32_t pcapSamplingN;
+  SFDDgram sFlowDatagram;
+  uint64_t pcap_uS;
+  uint32_t output_sample_pool;
+  uint32_t output_sample_seqNo;
+  int output_sample_skip;
   EnumSFLFormat outputFormat;
+  /* JSON */
   int jsonIndent;
   int jsonStart;
   int jsonListStart;
   int outputDepth;
   SFFieldList outputFieldList;
   EnumSFScope currentFieldScope;
-  int pcapSwap;
 
 #ifdef SPOOFSOURCE
   int spoofSource;
@@ -274,6 +284,7 @@ typedef struct _SFConfig {
   /* general options */
   int keepGoing;
   int allowDNS;
+
 } SFConfig;
 
 /* make the options structure global to the program */
@@ -751,6 +762,56 @@ void my_free(void *ptr) {
     free(ptr);
   }
 }
+
+void *my_cb_alloc(void *magic, size_t bytes) {
+  return my_calloc(bytes);
+}
+
+void my_cb_free(void *magic, void *ptr) {
+  my_free(ptr);
+}
+
+/*_________________------------------------__________________
+  _________________      time              __________________
+  -----------------________________________------------------
+*/
+  
+void clockMono(struct timespec *ts) {
+  clockid_t monoClock = CLOCK_MONOTONIC;
+#ifdef CLOCK_MONOTONIC_COARSE
+  // more efficient if supported,  since we only need mS accuracy
+  monoClock = CLOCK_MONOTONIC_COARSE;
+#endif
+  if(clock_gettime(monoClock, ts) == -1) {
+    fprintf(ERROUT, "clock_gettime() failed: %s", strerror(errno));
+    exit(-51);
+  }
+}
+
+uint64_t now_mS(void *magic) {
+  struct timespec ts;
+  clockMono(&ts);
+  uint64_t mS = ts.tv_sec;
+  mS *= 1000;
+  mS += (ts.tv_nsec >> 20); // approximation of / 1e6
+  return mS;
+}
+/*_________________---------------------------__________________
+  _________________     sfl_random            __________________
+  -----------------___________________________------------------
+  Gerhard's generator
+*/
+
+static uint32_t SFLRandom = 1;
+
+uint32_t sfl_random(uint32_t lim) {
+  SFLRandom = ((SFLRandom * 32719) + 3) % 32749;
+  return ((SFLRandom % lim) + 1);
+} 
+
+void sfl_random_init(uint32_t seed) {
+  SFLRandom = seed;
+} 
 
 /*_________________---------------------------__________________
   _________________      string buffer        __________________
@@ -5613,6 +5674,40 @@ static void receiveSFlowDatagram(SFSample *sample)
   }
 }
 
+/*_________________---------------------------__________________
+  _________________  sendSFlowDatagram        __________________
+  -----------------___________________________------------------
+  This variant comes from SFDDgram and uses vectored I/O
+*/
+
+static void sendSFlowDatagram(void *magic, struct iovec *iov, int iovcnt)
+{
+  if(sfConfig.forwardingTargets || sfConfig.forwardingTargets6) {
+    SFForwardingTarget *tgt = sfConfig.forwardingTargets;
+    for( ; tgt != NULL; tgt = tgt->nxt) {
+      struct msghdr msg = { .msg_name = &tgt->addr,
+			    .msg_namelen = sizeof(tgt->addr),
+			    .msg_iov = iov,
+			    .msg_iovlen = iovcnt };
+      if(sendmsg(tgt->sock, &msg, 0) == -1) {
+	fprintf(ERROUT, "sendmsg ERROR : %s\n",
+		strerror(errno));
+      }
+    }
+    SFForwardingTarget6 *tgt6 = sfConfig.forwardingTargets6;
+    for( ; tgt6 != NULL; tgt6 = tgt6->nxt) {
+      struct msghdr msg = { .msg_name = &tgt6->addr,
+			    .msg_namelen = sizeof(tgt6->addr),
+			    .msg_iov = iov,
+			    .msg_iovlen = iovcnt };
+      if(sendmsg(tgt6->sock, &msg, 0) == -1) {
+	fprintf(ERROUT, "sendmsg ERROR : %s\n",
+		strerror(errno));
+      }
+    }
+  }
+}
+
 /*__________________-----------------------------__________________
    _________________    openInputUDPSocket       __________________
    -----------------_____________________________------------------
@@ -5739,14 +5834,6 @@ static void readPacket(int soc)
   }
   receiveSFlowDatagram(&sample);
 }
-
-/*_________________---------------------------__________________
-  _________________     readPcapPacket        __________________
-  -----------------___________________________------------------
-*/
-
-
-
 
 /*_________________---------------------------__________________
   _________________     decodeLinkLayer       __________________
@@ -5876,8 +5963,10 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
   return (ptr - start);
 }
 
-
-
+/*_________________---------------------------__________________
+  _________________     readPcapPacket        __________________
+  -----------------___________________________------------------
+*/
 
 static int readPcapPacket(FILE *file)
 {
@@ -5911,20 +6000,64 @@ static int readPcapPacket(FILE *file)
     exit(-34);
   }
 
+  if(sfConfig.pcapSamplingN) {
+    sfConfig.output_sample_pool++;
+    if(--sfConfig.output_sample_skip <= 0) {
+      sfConfig.output_sample_skip = sfl_random((2 * sfConfig.pcapSamplingN)-1);
+      SFDBuf *pktsmp = SFDSampleNew(&sfConfig.sFlowDatagram);
+      sfd_xdr_start_tlv(pktsmp, SFLFLOW_SAMPLE_EXPANDED);
+      sfd_xdr_enc_int32(pktsmp, ++sfConfig.output_sample_seqNo);
+      sfd_xdr_enc_int32(pktsmp, 0); // ds_class = <interface>
+      sfd_xdr_enc_int32(pktsmp, 0); // ds_index = <backplane>
+      sfd_xdr_enc_int32(pktsmp, sfConfig.pcapSamplingN);
+      sfd_xdr_enc_int32(pktsmp, sfConfig.output_sample_pool);
+      sfd_xdr_enc_int32(pktsmp, 0); // drops count
+      sfd_xdr_enc_int32(pktsmp, 0); // input format
+      sfd_xdr_enc_int32(pktsmp, 0); // input port <unknown>
+      sfd_xdr_enc_int32(pktsmp, 0); // output format
+      sfd_xdr_enc_int32(pktsmp, 0); // output port <unknown>
+      sfd_xdr_enc_int32(pktsmp, 1); // number of elements
+      sfd_xdr_start_tlv(pktsmp, SFLFLOW_HEADER);
+      sfd_xdr_enc_int32(pktsmp, SFLHEADER_ETHERNET_ISO8023); // header protocol - TODO: learn from pcap
+      sfd_xdr_enc_int32(pktsmp, hdr.len + 4); // frame_length
+      sfd_xdr_enc_int32(pktsmp, 4); // stripped (FCS)
+      uint32_t caplen = hdr.caplen;
+      if(caplen > SFL_DEFAULT_HEADER_SIZE)
+	caplen = SFL_DEFAULT_HEADER_SIZE;
+      sfd_xdr_enc_int32(pktsmp, caplen); // header len
+      sfd_xdr_enc_bytes(pktsmp, buf, caplen); // header
+      sfd_xdr_end_tlv(pktsmp); // header element
+      sfd_xdr_end_tlv(pktsmp); // flow sample
+      SFDAddSample(&sfConfig.sFlowDatagram, pktsmp);
+    }
 
-  if(hdr.caplen < hdr.len) {
-    fprintf(ERROUT, "incomplete datagram (pcap snaplen too short)\n");
+    uint64_t pcap_uS = (hdr.ts_sec * 1000000) + hdr.ts_usec;
+    if(sfConfig.pcap_uS) {
+      // TODO: apply an optional time compression factor
+      uint64_t wait_uS = pcap_uS - sfConfig.pcap_uS;
+      if((now_mS(NULL) - sfConfig.sFlowDatagram.lastSend_mS) > 500
+	 || wait_uS > 500000)
+	SFDSend(&sfConfig.sFlowDatagram); // flush before sleep
+      usleep(wait_uS);
+    }
+    sfConfig.pcap_uS = pcap_uS;
   }
   else {
-    /* need to skip over the encapsulation in the captured packet.
-       -- should really do this by checking for 802.2, IP options etc.  but
-       for now we just assume ethernet + IP + UDP */
-    skipBytes = pcapOffsetToSFlow(buf, hdr.caplen);
-    memset(&sample, 0, sizeof(sample));
-    sample.rawSample = buf + skipBytes;
-    sample.rawSampleLen = hdr.caplen - skipBytes;
-    sample.pcapTimestamp = hdr.ts_sec;
-    receiveSFlowDatagram(&sample);
+    // reading full sFlow datagrams from pcap file
+    if(hdr.caplen < hdr.len) {
+      fprintf(ERROUT, "incomplete datagram (pcap snaplen too short)\n");
+    }
+    else {
+      /* need to skip over the encapsulation in the captured packet.
+	 -- should really do this by checking for 802.2, IP options etc.  but
+	 for now we just assume ethernet + IP + UDP */
+      skipBytes = pcapOffsetToSFlow(buf, hdr.caplen);
+      memset(&sample, 0, sizeof(sample));
+      sample.rawSample = buf + skipBytes;
+      sample.rawSampleLen = hdr.caplen - skipBytes;
+      sample.pcapTimestamp = hdr.ts_sec;
+      receiveSFlowDatagram(&sample);
+    }
   }
   return 1;
 }
@@ -6308,6 +6441,7 @@ static void process_command_line(int argc, char *argv[])
     case 'L':
     case 'p':
     case 'r':
+    case 'R':
     case 'z':
     case 'c':
     case 'd':
@@ -6334,10 +6468,14 @@ static void process_command_line(int argc, char *argv[])
       parseFieldList(&sfConfig.outputFieldList, argv[arg++]);
       break;
     case 'r':
-        len_str = strlen(argv[arg]); /* argv[arg] already null-terminated */
-        sfConfig.readPcapFileName = my_calloc(len_str+1);
-	memcpy(sfConfig.readPcapFileName, argv[arg++], len_str);
-        break;
+      len_str = strlen(argv[arg]); /* argv[arg] already null-terminated */
+      sfConfig.readPcapFileName = my_calloc(len_str+1);
+      memcpy(sfConfig.readPcapFileName, argv[arg++], len_str);
+      break;
+    case 'R':
+      sfConfig.pcapSamplingN = atoi(argv[arg++]);
+      sfConfig.outputFormat = SFLFMT_SFLOW;
+      break;
     case 'x': sfConfig.removeContent = YES; break;
     case 'c':
       if(setNetFlowCollector(argv[arg++]) == NO) exit(-8);
@@ -6446,6 +6584,21 @@ int main(int argc, char *argv[])
       exit(-1);
     }
     readPcapHeader();
+    if(sfConfig.pcapSamplingN) {
+      /* The pcap file is raw and we want to generate sFlow packet samples from it */
+      /* sending with agentAddress=0.0.0.0 should help to avoid problems if this */
+      /* were to clash with 'real' data */
+      SFLAddress dummyAgentAddr = { .type=SFLADDRESSTYPE_IP_V4 };
+      SFDInit(&sfConfig.sFlowDatagram,
+	      SFL_MAX_DATAGRAM_SIZE,
+	      &dummyAgentAddr,
+	      0x5F10, /* agentSubId */
+	      NULL, /* cb_magic */
+	      my_cb_alloc,
+	      my_cb_free,
+	      now_mS,
+	      sendSFlowDatagram);
+    }
   }
   else {
     /* open the input socket -- for now it's either a v4 or v6 socket, but in future
