@@ -5,11 +5,7 @@
 extern "C" {
 #endif
 
-#ifdef _WIN32
-#include "config_windows.h"
-#else
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -22,9 +18,6 @@ extern "C" {
 #include <setjmp.h>
 #include <ctype.h>
 #include <search.h>
-
-#ifdef _WIN32
-#else
 #include <stdint.h>
 #include <unistd.h>
 #include <netdb.h>
@@ -36,47 +29,14 @@ extern "C" {
 #include <inttypes.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#endif
+#include <byteswap.h>
 
 #include "sflow.h" /* sFlow v5 */
 #include "sflow_v2v4.h" /* sFlow v2/4 */
 #include "assert.h"
-#include "sflow_xdr.h"
+#include "sflow_xdr.h" /* sFlow encode */
 
-/* If the platform is Linux, enable the source-spoofing feature too. */
-#ifdef linux
 #define SPOOFSOURCE 1
-#endif
-
-/*
-#ifdef DARWIN
-#include <architecture/byte_order.h>
-#define bswap_16(x) NXSwapShort(x)
-#define bswap_32(x) NXSwapInt(x)
-#else
-#include <byteswap.h>
-#endif
-*/
-
-/* just do it in a portable way... */
-static uint32_t MyByteSwap32(uint32_t n) {
-  return (((n & 0x000000FF)<<24) +
-	  ((n & 0x0000FF00)<<8) +
-	  ((n & 0x00FF0000)>>8) +
-	  ((n & 0xFF000000)>>24));
-}
-static uint16_t MyByteSwap16(uint16_t n) {
-  return ((n >> 8) | (n << 8));
-}
-
-#ifndef PRIu64
-# ifdef _WIN32
-#  define PRIu64 "I64u"
-# else
-#  define PRIu64 "llu"
-# endif
-#endif
-
 #define YES 1
 #define NO 0
 
@@ -1946,14 +1906,14 @@ static void readPcapHeader() {
     exit(-30);
   }
   if(hdr.magic != TCPDUMP_MAGIC) {
-    if(hdr.magic == MyByteSwap32(TCPDUMP_MAGIC)) {
+    if(hdr.magic == bswap_32(TCPDUMP_MAGIC)) {
       sfConfig.pcapSwap = YES;
-      hdr.version_major = MyByteSwap16(hdr.version_major);
-      hdr.version_minor = MyByteSwap16(hdr.version_minor);
-      hdr.thiszone = MyByteSwap32(hdr.thiszone);
-      hdr.sigfigs = MyByteSwap32(hdr.sigfigs);
-      hdr.snaplen = MyByteSwap32(hdr.snaplen);
-      hdr.linktype = MyByteSwap32(hdr.linktype);
+      hdr.version_major = bswap_16(hdr.version_major);
+      hdr.version_minor = bswap_16(hdr.version_minor);
+      hdr.thiszone = bswap_32(hdr.thiszone);
+      hdr.sigfigs = bswap_32(hdr.sigfigs);
+      hdr.snaplen = bswap_32(hdr.snaplen);
+      hdr.linktype = bswap_32(hdr.linktype);
     }
     else {
       fprintf(ERROUT, "%s not recognized as a tcpdump file\n(magic number = %08x instead of %08x)\n",
@@ -5729,12 +5689,10 @@ static int openInputUDPSocket(uint16_t port)
     return -1;
   }
 
-#ifndef _WIN32
   /* make socket non-blocking */
   int save_fd = fcntl(soc, F_GETFL);
   save_fd |= O_NONBLOCK;
   fcntl(soc, F_SETFL, save_fd);
-#endif /* _WIN32 */
 
   /* Bind the socket */
   if(bind(soc, (struct sockaddr *)&myaddr_in, sizeof(struct sockaddr_in)) == -1) {
@@ -5765,12 +5723,10 @@ static int openInputUDP6Socket(uint16_t port)
     exit(-6);
   }
 
-#ifndef _WIN32
   /* make socket non-blocking */
   int save_fd = fcntl(soc, F_GETFL);
   save_fd |= O_NONBLOCK;
   fcntl(soc, F_SETFL, save_fd);
-#endif /* _WIN32 */
 
   /* Bind the socket */
   if(bind(soc, (struct sockaddr *)&myaddr_in6, sizeof(struct sockaddr_in6)) == -1) {
@@ -5982,10 +5938,10 @@ static int readPcapPacket(FILE *file)
   }
 
   if(sfConfig.pcapSwap) {
-    hdr.ts_sec = MyByteSwap32(hdr.ts_sec);
-    hdr.ts_usec = MyByteSwap32(hdr.ts_usec);
-    hdr.caplen = MyByteSwap32(hdr.caplen);
-    hdr.len = MyByteSwap32(hdr.len);
+    hdr.ts_sec = bswap_32(hdr.ts_sec);
+    hdr.ts_usec = bswap_32(hdr.ts_usec);
+    hdr.caplen = bswap_32(hdr.caplen);
+    hdr.len = bswap_32(hdr.len);
   }
 
   /* Protect against possible buffer overrun from corrupted pcap file.
@@ -6360,6 +6316,7 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -t                 -  output packet samples in binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -T                 -  output discard samples in binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -r file            -  read binary tcpdump(1) format\n");
+  fprintf(ERROUT, "   -R N               -  encode 1:N sFlow from raw tcpdump(1) file\n");
   fprintf(ERROUT, "   -x                 -  remove all IPV4 content\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"NetFlow output:\n");
@@ -6401,13 +6358,8 @@ static void process_command_line(int argc, char *argv[])
   /* set defaults */
   sfConfig.sFlowInputPort = 6343;
   sfConfig.netFlowVersion = 5;
-#ifdef _WIN32
-  sfConfig.listen4 = YES;
-  sfConfig.listen6 = NO;
-#else
   sfConfig.listen4 = NO;
   sfConfig.listen6 = YES;
-#endif
   sfConfig.keepGoing = NO;
 
   /* walk though the args */
@@ -6559,21 +6511,8 @@ int main(int argc, char *argv[])
 {
   int32_t soc4=-1,soc6=-1;
 
-#ifdef _WIN32
-  WSADATA wsadata;
-  WSAStartup(0xffff, &wsadata);
-  /* TODO: supposed to call WSACleanup() on termination */
-#endif
-
   /* read the command line */
   process_command_line(argc, argv);
-
-#ifdef _WIN32
-  /* on windows we need to tell stdout if we want it to be binary */
-  if(sfConfig.outputFormat == SFLFMT_PCAP
-     || sfConfig.outputFormat == SFLFMT_PCAP_DISCARD)
-    setmode(1, O_BINARY);
-#endif
 
   /* reading from file or socket? */
   if(sfConfig.readPcapFileName) {
