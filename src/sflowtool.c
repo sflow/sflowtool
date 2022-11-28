@@ -206,6 +206,7 @@ typedef struct _SFConfig {
   uint32_t pcapSamplingN;
   SFDDgram sFlowDatagram;
   uint64_t pcap_uS;
+  double playback;
   uint32_t output_sample_pool;
   uint32_t output_sample_seqNo;
   int output_sample_skip;
@@ -5987,16 +5988,18 @@ static int readPcapPacket(FILE *file)
       SFDAddSample(&sfConfig.sFlowDatagram, pktsmp);
     }
 
-    uint64_t pcap_uS = (hdr.ts_sec * 1000000) + hdr.ts_usec;
-    if(sfConfig.pcap_uS) {
-      // TODO: apply an optional time compression factor
-      uint64_t wait_uS = pcap_uS - sfConfig.pcap_uS;
-      if((now_mS(NULL) - sfConfig.sFlowDatagram.lastSend_mS) > 500
-	 || wait_uS > 500000)
-	SFDSend(&sfConfig.sFlowDatagram); // flush before sleep
-      usleep(wait_uS);
+    if(sfConfig.playback < 100) {
+      uint64_t pcap_uS = (hdr.ts_sec * 1000000) + hdr.ts_usec;
+      if(sfConfig.pcap_uS) {
+	// apply playback-speed time compression factor
+	uint64_t wait_uS = (pcap_uS - sfConfig.pcap_uS) / sfConfig.playback;
+	if((now_mS(NULL) - sfConfig.sFlowDatagram.lastSend_mS) > 500
+	   || wait_uS > 500000)
+	  SFDSend(&sfConfig.sFlowDatagram); // flush before sleep
+	usleep(wait_uS);
+      }
+      sfConfig.pcap_uS = pcap_uS;
     }
-    sfConfig.pcap_uS = pcap_uS;
   }
   else {
     // reading full sFlow datagrams from pcap file
@@ -6315,8 +6318,10 @@ static void instructions(char *command)
   fprintf(ERROUT,"tcpdump output:\n");
   fprintf(ERROUT, "   -t                 -  output packet samples in binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -T                 -  output discard samples in binary tcpdump(1) format\n");
+  fprintf(ERROUT,"tcpdump input:\n");
   fprintf(ERROUT, "   -r file            -  read binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -R N               -  encode 1:N sFlow from raw tcpdump(1) file\n");
+  fprintf(ERROUT, "   -P playback        -  0.1=slow, 1=normal, 100=max\n");
   fprintf(ERROUT, "   -x                 -  remove all IPV4 content\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"NetFlow output:\n");
@@ -6394,6 +6399,7 @@ static void process_command_line(int argc, char *argv[])
     case 'p':
     case 'r':
     case 'R':
+    case 'P':
     case 'z':
     case 'c':
     case 'd':
@@ -6427,6 +6433,11 @@ static void process_command_line(int argc, char *argv[])
     case 'R':
       sfConfig.pcapSamplingN = atoi(argv[arg++]);
       sfConfig.outputFormat = SFLFMT_SFLOW;
+      break;
+    case 'P':
+      sfConfig.playback = atof(argv[arg++]);
+      if(sfConfig.playback <= 000001)
+	sfConfig.playback = 0.00001;
       break;
     case 'x': sfConfig.removeContent = YES; break;
     case 'c':
@@ -6568,7 +6579,17 @@ int main(int argc, char *argv[])
     writePcapHeader();
   if(sfConfig.readPcapFile) {
     /* just use a blocking read */
+#ifdef SFL_PCAP_LOOP
+    for(;;) {
+      uint32_t pcount;
+      while(readPcapPacket(sfConfig.readPcapFile))
+	pcount++;
+      fprintf(ERROUT, "%"PRIu64":%u\n", now_mS(NULL), pcount);
+      fseek(sfConfig.readPcapFile, sizeof(struct pcap_file_header), SEEK_SET);
+    }
+#else
     while(readPcapPacket(sfConfig.readPcapFile));
+#endif
   }
   else {
     fd_set readfds;
