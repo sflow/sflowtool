@@ -204,7 +204,7 @@ typedef struct _SFConfig {
   int pcapSwap;
   /* sFlow-from-pcap generator */
   uint32_t pcapSamplingN;
-  SFDDgram sFlowDatagram;
+  SFDDgram *sFlowDatagram;
   uint64_t pcap_uS;
   double playback;
   uint32_t output_sample_pool;
@@ -5961,7 +5961,7 @@ static int readPcapPacket(FILE *file)
     sfConfig.output_sample_pool++;
     if(--sfConfig.output_sample_skip <= 0) {
       sfConfig.output_sample_skip = sfl_random((2 * sfConfig.pcapSamplingN)-1);
-      SFDBuf *pktsmp = SFDSampleNew(&sfConfig.sFlowDatagram);
+      SFDBuf *pktsmp = SFDSampleNew(sfConfig.sFlowDatagram);
       sfd_xdr_start_tlv(pktsmp, SFLFLOW_SAMPLE_EXPANDED);
       sfd_xdr_enc_int32(pktsmp, ++sfConfig.output_sample_seqNo);
       sfd_xdr_enc_int32(pktsmp, 0); // ds_class = <interface>
@@ -5985,7 +5985,7 @@ static int readPcapPacket(FILE *file)
       sfd_xdr_enc_bytes(pktsmp, buf, caplen); // header
       sfd_xdr_end_tlv(pktsmp); // header element
       sfd_xdr_end_tlv(pktsmp); // flow sample
-      SFDAddSample(&sfConfig.sFlowDatagram, pktsmp);
+      SFDAddSample(sfConfig.sFlowDatagram, pktsmp);
     }
 
     if(sfConfig.playback < 100) {
@@ -5993,9 +5993,9 @@ static int readPcapPacket(FILE *file)
       if(sfConfig.pcap_uS) {
 	// apply playback-speed time compression factor
 	uint64_t wait_uS = (pcap_uS - sfConfig.pcap_uS) / sfConfig.playback;
-	if((now_mS(NULL) - sfConfig.sFlowDatagram.lastSend_mS) > 500
+	if((now_mS(NULL) - SFDLastSend_mS(sfConfig.sFlowDatagram)) > 500
 	   || wait_uS > 500000)
-	  SFDSend(&sfConfig.sFlowDatagram); // flush before sleep
+	  SFDSend(sfConfig.sFlowDatagram); // flush before sleep
 	usleep(wait_uS);
       }
       sfConfig.pcap_uS = pcap_uS;
@@ -6539,15 +6539,16 @@ int main(int argc, char *argv[])
       /* sending with agentAddress=0.0.0.0 should help to avoid problems if this */
       /* were to clash with 'real' data */
       SFLAddress dummyAgentAddr = { .type=SFLADDRESSTYPE_IP_V4 };
-      SFDInit(&sfConfig.sFlowDatagram,
-	      SFL_MAX_DATAGRAM_SIZE,
-	      &dummyAgentAddr,
-	      0x5F10, /* agentSubId */
-	      NULL, /* cb_magic */
-	      my_cb_alloc,
-	      my_cb_free,
-	      now_mS,
-	      sendSFlowDatagram);
+      sfConfig.sFlowDatagram = SFDNew(SFL_MAX_DATAGRAM_SIZE,
+				      &dummyAgentAddr,
+				      0x5F10, /* agentSubId */
+				      NULL, /* cb_magic */
+				      my_cb_alloc,
+				      my_cb_free,
+				      now_mS,
+				      sendSFlowDatagram,
+				      NULL, /* no locks */
+				      NULL /* no err msg */);
     }
   }
   else {
