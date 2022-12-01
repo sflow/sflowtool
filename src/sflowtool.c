@@ -30,6 +30,7 @@ extern "C" {
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <byteswap.h>
+#include <getopt.h>
 
 #include "sflow.h" /* sFlow v5 */
 #include "sflow_v2v4.h" /* sFlow v2/4 */
@@ -6335,11 +6336,11 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -N version         -  netflow version, 5 or 9 (default 5)\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"Filters:\n");
-  fprintf(ERROUT, "   +v <vlans>         -  include vlans (e.g. +v 0-20,4091)\n");
+  fprintf(ERROUT, "   -V <vlans>         -  include vlans (e.g. -V 0-20,4091)\n");
   fprintf(ERROUT, "   -v <vlans>         -  exclude vlans\n");
   fprintf(ERROUT, "   -4                 -  listen on IPv4 socket only\n");
   fprintf(ERROUT, "   -6                 -  listen on IPv6 socket only\n");
-  fprintf(ERROUT, "   +4                 -  listen on both IPv4 and IPv6 sockets\n");
+  fprintf(ERROUT, "   -A                 -  listen on both IPv4 and IPv6 sockets\n");
   fprintf(ERROUT, "\n");
   fprintf(ERROUT, "=============== Advanced Tools ===========================================\n");
   fprintf(ERROUT, "| sFlow-RT (real time)  - https://sflow-rt.com                           |\n");
@@ -6355,11 +6356,6 @@ static void instructions(char *command)
 
 static void process_command_line(int argc, char *argv[])
 {
-  int arg = 1, in = 0;
-  int i;
-  int plus,minus;
-  size_t len_str;
-
   /* set defaults */
   sfConfig.sFlowInputPort = 6343;
   sfConfig.netFlowVersion = 5;
@@ -6367,50 +6363,72 @@ static void process_command_line(int argc, char *argv[])
   sfConfig.listen6 = YES;
   sfConfig.keepGoing = NO;
 
-  /* walk though the args */
-  while (arg < argc) {
-    plus = (argv[arg][0] == '+');
-    minus = (argv[arg][0] == '-');
-    if(plus == NO && minus == NO) { instructions(*argv); exit(1); }
-    in = argv[arg++][1];
-    /* check first that options with/without arguments are correct */
-    switch(in) {
-    case 't':
-    case 'T':
-    case 'l':
-    case 'g':
-    case 'j':
-    case 'J':
-    case 'H':
-    case 'x':
-    case 'e':
-    case 's':
-#ifdef SPOOFSOURCE
-    case 'S':
-#endif
-    case 'D':
-    case '4':
-    case '6':
-    case 'k':
-    case '?':
-    case 'h':
-      break;
-    case 'L':
-    case 'p':
-    case 'r':
-    case 'R':
-    case 'P':
-    case 'z':
-    case 'c':
-    case 'd':
-    case 'f':
-    case 'N':
-    case 'v': if(arg < argc) break;
-    default: instructions(*argv); exit(1);
+  /* change "+v" to "-V"
+     and "+4" to "-A"
+     for backwards compatibility */
+  for(int ii = 1; ii < argc; ii++) {
+    if(argv[ii][0] == '+') {
+      if(argv[ii][1] == 'v') {
+	argv[ii][0] = '-';
+	argv[ii][1] = 'V';
+      }
+      if(argv[ii][1] == '4') {
+	argv[ii][0] = '-';
+	argv[ii][1] = 'A';
+      }
     }
+  }
+  
+  for (;;) {
+    int in=0, option_index=0;
+    static struct option long_options[] =
+      {
+       // ==== no argument ====
+       { "line", no_argument, NULL, 'l' },
+       { "json", no_argument, NULL, 'j' },
+       { "json-indented", no_argument, NULL, 'J' },
+       { "grep", no_argument, NULL, 'g' },
+       { "write-pcap", no_argument, NULL, 't' },
+       { "write-pcap-discards", no_argument, NULL, 'T' },
+       { "common-logfile", no_argument, NULL, 'H' },
+       { "redact-payload", no_argument, NULL, 'x' },
+       { "netflow-peer-as", no_argument, NULL, 'e' },
+       { "no-scaling", no_argument, NULL, 's' },
+       { "netflow-spoof-source", no_argument, NULL, 'S' },
+       { "allow-dns", no_argument, NULL, 'D' },
+       { "listen-v4-only", no_argument, NULL, '4' },
+       { "listen-v6-only", no_argument, NULL, '6' },
+       { "listen-v4-v6", no_argument, NULL, 'A' },
+       { "keep-going-on-error", no_argument, NULL, 'k' },
+       { "help", no_argument, NULL, 'h' },
+       { "usage", no_argument, NULL, '?' },
+       { "version", no_argument, NULL, 'z' },
+       // ==== argument required ====
+       { "fields", required_argument, NULL, 'L' },
+       { "port", required_argument, NULL, 'p' },
+       { "read-pcap", required_argument, NULL, 'r' },
+       { "read-pcap-sampling", required_argument, NULL, 'R' },
+       { "read-pcap-playback", required_argument, NULL, 'P' },
+       { "netflow-collector", required_argument, NULL, 'c' },
+       { "netflow-udp-dport", required_argument, NULL, 'd' },
+       { "netflow-version", required_argument, NULL, 'N' },
+       { "forwarding-target", required_argument, NULL, 'f' },
+       { "include-vlans", required_argument, NULL, 'v' },
+       { "exclude-vlans", required_argument, NULL, 'V' },
+       { 0,0,0,0 }
+      };
+
+    in = getopt_long(argc,
+		     argv,
+		     "ljJgtTHxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:",
+		     long_options,
+		     &option_index);
+
+    if(in == -1)
+      break;
 
     switch(in) {
-    case 'p': sfConfig.sFlowInputPort = atoi(argv[arg++]); break;
+    case 'p': sfConfig.sFlowInputPort = atoi(optarg); break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
     case 'T': sfConfig.outputFormat = SFLFMT_PCAP_DISCARD; break;
     case 'l': sfConfig.outputFormat = SFLFMT_LINE; break;
@@ -6423,29 +6441,27 @@ static void process_command_line(int argc, char *argv[])
       break;
     case 'L':
       sfConfig.outputFormat = SFLFMT_LINE_CUSTOM;
-      parseFieldList(&sfConfig.outputFieldList, argv[arg++]);
+      parseFieldList(&sfConfig.outputFieldList, optarg);
       break;
     case 'r':
-      len_str = strlen(argv[arg]); /* argv[arg] already null-terminated */
-      sfConfig.readPcapFileName = my_calloc(len_str+1);
-      memcpy(sfConfig.readPcapFileName, argv[arg++], len_str);
+      sfConfig.readPcapFileName = strdup(optarg);
       break;
     case 'R':
-      sfConfig.pcapSamplingN = atoi(argv[arg++]);
+      sfConfig.pcapSamplingN = atoi(optarg);
       sfConfig.outputFormat = SFLFMT_SFLOW;
       break;
     case 'P':
-      sfConfig.playback = atof(argv[arg++]);
+      sfConfig.playback = atof(optarg);
       if(sfConfig.playback <= 000001)
 	sfConfig.playback = 0.00001;
       break;
     case 'x': sfConfig.removeContent = YES; break;
     case 'c':
-      if(setNetFlowCollector(argv[arg++]) == NO) exit(-8);
+      if(setNetFlowCollector(optarg) == NO) exit(-8);
       sfConfig.outputFormat = SFLFMT_NETFLOW;
       break;
     case 'd':
-      sfConfig.netFlowOutputPort = atoi(argv[arg++]);
+      sfConfig.netFlowOutputPort = atoi(optarg);
       sfConfig.outputFormat = SFLFMT_NETFLOW;
       break;
     case 'e': sfConfig.netFlowPeerAS = YES; break;
@@ -6455,7 +6471,7 @@ static void process_command_line(int argc, char *argv[])
 #endif
     case 'N':
       {
-        sfConfig.netFlowVersion = atoi(argv[arg++]);
+        sfConfig.netFlowVersion = atoi(optarg);
         switch(sfConfig.netFlowVersion) {
         case 5:
 	  sendNetFlowDatagram = sendNetFlowV5Datagram;
@@ -6472,33 +6488,35 @@ static void process_command_line(int argc, char *argv[])
       }
       break;
     case 'f':
-      if(addForwardingTarget(argv[arg++]) == NO) exit(-35);
+      if(addForwardingTarget(optarg) == NO) exit(-35);
       sfConfig.outputFormat = SFLFMT_FWD;
       break;
+    case 'V':
+      sfConfig.gotVlanFilter = YES;
+      parseVlanFilter(sfConfig.vlanFilter, YES, optarg);
+      break;
     case 'v':
-      if(plus) {
-	/* +v => include vlans */
+      if(!sfConfig.gotVlanFilter) {
+	/* when we start with an exclude list, that means the default should be YES */
+	for(int vv = 0; vv < FILTER_MAX_VLAN; vv++)
+	  sfConfig.vlanFilter[vv] = YES;
 	sfConfig.gotVlanFilter = YES;
-	parseVlanFilter(sfConfig.vlanFilter, YES, argv[arg++]);
       }
-      else {
-	/* -v => exclude vlans */
-	if(! sfConfig.gotVlanFilter) {
-	  /* when we start with an exclude list, that means the default should be YES */
-	  for(i = 0; i < FILTER_MAX_VLAN; i++) sfConfig.vlanFilter[i] = YES;
-	  sfConfig.gotVlanFilter = YES;
-	}
-	parseVlanFilter(sfConfig.vlanFilter, NO, argv[arg++]);
-      }
+      parseVlanFilter(sfConfig.vlanFilter, NO, optarg);
       break;
     case '4':
       sfConfig.listenControlled = YES;
       sfConfig.listen4 = YES;
-      sfConfig.listen6 = plus;
+      sfConfig.listen6 = NO;
       break;
     case '6':
       sfConfig.listenControlled = YES;
       sfConfig.listen4 = NO;
+      sfConfig.listen6 = YES;
+      break;
+    case 'A':
+      sfConfig.listenControlled = YES;
+      sfConfig.listen4 = YES;
       sfConfig.listen6 = YES;
       break;
     case 'k':
@@ -6507,8 +6525,15 @@ static void process_command_line(int argc, char *argv[])
     case 'D':
       sfConfig.allowDNS = YES;
       break;
-    /* remaining are -h or -? */
-    default: instructions(*argv); exit(0);
+    case 'z':
+      fprintf(ERROUT,"%s\n", VERSION);
+      exit(0);
+      break;
+    case 'h':
+    case '?':
+    default:
+      instructions(*argv);
+      exit(0);
     }
   }
 }
