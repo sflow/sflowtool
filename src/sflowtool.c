@@ -3708,6 +3708,38 @@ static void readExtendedQueueDepth(SFSample *sample)
   sf_log_next32(sample, "queue_depth_bytes");
 }
 
+/*_________________----------------------------__________________
+  _________________  readExtendedHardwareTrap  __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedHardwareTrap(SFSample *sample)
+{
+  sf_logf(sample, "extendedType", "hw_trap");
+  char groupName[SFL_MAX_HW_TRAP_LEN+1];
+  char trapName[SFL_MAX_HW_TRAP_LEN+1];
+  if(getString(sample, groupName, SFL_MAX_HW_TRAP_LEN) > 0) {
+    sf_logf(sample, "hw_trap_group", groupName);
+  }
+  if(getString(sample, trapName, SFL_MAX_HW_TRAP_LEN) > 0) {
+    sf_logf(sample, "hw_trap_name", trapName);
+  }
+}
+
+/*_________________----------------------------__________________
+  _________________  readExtendedLinuxReason   __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedLinuxReason(SFSample *sample)
+{
+  sf_logf(sample, "extendedType", "linux_reason");
+  char reason[SFL_MAX_LINUX_REASON_LEN+1];
+  if(getString(sample, reason, SFL_MAX_LINUX_REASON_LEN) > 0) {
+    sf_logf(sample, "linux_drop_reason", reason);
+  }
+}
+
 /*_________________---------------------------__________________
   _________________    readFlowSample_v2v4    __________________
   -----------------___________________________------------------
@@ -4089,6 +4121,8 @@ static void readDiscardSample(SFSample *sample)
       case SFLFLOW_HEADER:     readFlowSample_header(sample); break;
       case SFLFLOW_EX_FUNCTION: readExtendedFunction(sample); break;
       case SFLFLOW_EX_EGRESS_Q: readExtendedEgressQueue(sample); break;
+      case SFLFLOW_EX_HW_TRAP: readExtendedHardwareTrap(sample); break;
+      case SFLFLOW_EX_LINUX_REASON: readExtendedLinuxReason(sample); break;
       default: skipTLVRecord(sample, tag, length, "discard_sample_element"); break;
       }
       lengthCheck(sample, "discard_sample_element", start, length);

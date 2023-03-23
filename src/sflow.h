@@ -634,6 +634,32 @@ typedef struct {
 } SFLExtended_queue_depth;
 #define XDRSIZ_SFLEXTENDED_Q_DEPTH 4
 
+  // Devlink Trap Name
+  // opaque = flow_data; enterprise = 0; format = 1041
+  // https://www.kernel.org/doc/html/latest/networking/devlink/devlink-trap.html
+  // XDR spec:
+  //  struct extended_hw_trap {
+  //    string group<>; /* NET_DM_ATTR_HW_TRAP_GROUP_NAME */
+  //    string trap<>; /* NET_DM_ATTR_HW_TRAP_NAME */
+  //  }
+typedef struct _SFLExtended_hw_trap {
+  SFLString group;
+  SFLString trap;
+} SFLExtended_hw_trap;
+#define SFL_MAX_HW_TRAP_LEN 64
+
+  // Linux drop_monitor reason
+  // opaque = flow_data; enterprise = 0; format = 1042
+  // https://github.com/torvalds/linux/blob/master/include/net/dropreason.h
+  // XDR spec:
+  //  struct extended_linux_drop_reason {
+  //    string reason<>; /* NET_DM_ATTR_REASON */
+  //  }
+typedef struct _SFLExtended_linux_reason {
+  SFLString reason;
+} SFLExtended_linux_reason;
+#define SFL_MAX_LINUX_REASON_LEN 64
+
 enum SFLFlow_type_tag {
   /* enterprise = 0, format = ... */
   SFLFLOW_HEADER    = 1,      /* Packet headers are sampled */
@@ -671,6 +697,8 @@ enum SFLFlow_type_tag {
   SFLFLOW_EX_FUNCTION          = 1038,
   SFLFLOW_EX_TRANSIT           = 1039,
   SFLFLOW_EX_Q_DEPTH           = 1040,
+  SFLFLOW_EX_HW_TRAP           = 1041,
+  SFLFLOW_EX_LINUX_REASON      = 1042,
   SFLFLOW_EX_SOCKET4       = 2100,
   SFLFLOW_EX_SOCKET6       = 2101,
   SFLFLOW_EX_PROXYSOCKET4  = 2102,
