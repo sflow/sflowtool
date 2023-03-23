@@ -879,11 +879,11 @@ static int SFStr_append_hex(SFStr *sb, u_char *hex, int nbytes, int prefix, int 
 
 static int SFStr_append_array32(SFStr *sb, uint32_t *array32, int n, int net_byte_order, char sep) {
   for(int i = 0; i < n; i++) {
-    char ibuf[32];
+    char ibuf[64];
     uint32_t val32 = array32[i];
     if(net_byte_order)
       val32 = ntohl(val32);
-    sprintf(ibuf, "%u", val32);
+    snprintf(ibuf, 64, "%u", val32);
     int ilen = strlen(ibuf);
     if((sb->len + 1 + ilen) >= sb->cap)
       return NO;
@@ -898,20 +898,20 @@ static int SFStr_append_array32(SFStr *sb, uint32_t *array32, int n, int net_byt
 
 static int SFStr_append_U32(SFStr *sb, char *fmt, uint32_t val32) {
   char ibuf[200];
-  sprintf(ibuf, fmt, val32);
+  snprintf(ibuf, 64, fmt, val32);
   return SFStr_append(sb, ibuf);
 }
 
 static int SFStr_append_U64(SFStr *sb, char *fmt, uint64_t val64) {
   char ibuf[200];
-  sprintf(ibuf, fmt, val64);
+  snprintf(ibuf, 200, fmt, val64);
   return SFStr_append(sb, ibuf);
   return YES;
 }
 
 static int SFStr_append_double(SFStr *sb, char *fmt, double vald) {
   char ibuf[200];
-  sprintf(ibuf, fmt, vald);
+  snprintf(ibuf, 200, fmt, vald);
   return SFStr_append(sb, ibuf);
   return YES;
 }
@@ -974,7 +974,7 @@ static int SFStr_append_timestamp(SFStr *sb, time_t ts) {
 
 static int SFStr_append_dataSource(SFStr *sb, uint32_t ds_class, uint32_t ds_index) {
   char buf[200];
-  sprintf(buf, "%u:%u", ds_class, ds_index);
+  snprintf(buf, 200, "%u:%u", ds_class, ds_index);
   return SFStr_append(sb, buf);
 }
 
@@ -1516,9 +1516,9 @@ static void decodeLinkLayer(SFSample *sample)
     else {
       /* 802.1AD / Q-in-Q: indicate VLAN depth */
       char dotQField[64];
-      sprintf(dotQField, "decodedVLAN.%u", vlanDepth);
+      snprintf(dotQField, 64, "decodedVLAN.%u", vlanDepth);
       sf_logf_U32(sample, dotQField, vlan);
-      sprintf(dotQField, "decodedPriority.%u", vlanDepth);
+      snprintf(dotQField, 64, "decodedPriority.%u", vlanDepth);
       sf_logf_U32(sample, dotQField, priority);
     }
     sample->s.in_vlan = vlan;
@@ -2510,21 +2510,21 @@ static uint64_t sf_log_next64(SFSample *sample, char *fieldName) {
 
 void sf_log_percentage(SFSample *sample, char *fieldName)
 {
-  char buf[32];
+  char buf[64];
   uint32_t hundredths = getData32(sample);
   if(hundredths == (uint32_t)-1)
     sf_logf(sample, fieldName, "unknown");
   else {
     float percent = (float)hundredths / (float)100.0;
-    sprintf(buf, "%.2f", percent);
+    snprintf(buf, 64, "%.2f", percent);
     sf_logf(sample, fieldName, buf);
   }
 }
 
 static float sf_log_nextFloat(SFSample *sample, char *fieldName) {
-  char buf[32];
+  char buf[64];
   float val = getFloat(sample);
-  sprintf(buf, "%.3f", val);
+  snprintf(buf, 64, "%.3f", val);
   sf_logf(sample, fieldName, buf);
   return val;
 }
@@ -3388,8 +3388,7 @@ static void readFlowSample_http(SFSample *sample, uint32_t tag)
     time_t now = time(NULL);
     char nowstr[200];
     strftime(nowstr, 200, "%d/%b/%Y:%H:%M:%S %z", localtime(&now)); /* there seems to be no simple portable equivalent to %z */
-    /* should really be: snprintf(sfCLF.http_log, SFLFMT_CLF_MAX_LINE,...) but snprintf() is not always available */
-    sprintf(sfCLF.http_log, "- %s [%s] \"%s %s HTTP/%u.%u\" %u %"PRIu64" \"%s\" \"%s\"",
+    snprintf(sfCLF.http_log, SFLFMT_CLF_MAX_LINE, "- %s [%s] \"%s %s HTTP/%u.%u\" %u %"PRIu64" \"%s\" \"%s\"",
 	     authuser[0] ? authuser : "-",
 	     nowstr,
 	     SFHTTP_method_names[method],
@@ -3439,7 +3438,7 @@ static void readFlowSample_APP(SFSample *sample)
   status32 = getData32(sample);
   if(status32 >= SFLAPP_NUM_STATUS_CODES) {
     char buf[64];
-    sprintf(buf, "<out-of-range=%u>", status32);
+    snprintf(buf, 64, "<out-of-range=%u>", status32);
     sf_logf(sample, "status", buf);
   }
   else {
@@ -4323,7 +4322,7 @@ static void readCounters_OFPort(SFSample *sample)
 {
   uint64_t dpid = getData64(sample);
   char buf[64];
-  sprintf(buf, "%016"PRIx64"", dpid);
+  snprintf(buf, 64, "%016"PRIx64"", dpid);
   sf_logf(sample,  "openflow_datapath_id", buf);
   sf_log_next32(sample, "openflow_port");
 }
@@ -4422,8 +4421,8 @@ static void readCounters_adaptors(SFSample *sample)
     /* print as flat list of fields, with adaptor and mac index numbers */
     for(i = 0; i < num_adaptors; i++) {
       ifindex = getData32(sample);
-      char prefix[32];
-      sprintf(prefix, "adaptor_%u_", i);
+      char prefix[64];
+      snprintf(prefix, 64, "adaptor_%u_", i);
       sf_logf_U32_formatted(sample, prefix, "ifIndex", "%u", ifindex);
       num_macs = getData32(sample);
       sf_logf_U32_formatted(sample, prefix, "MACs", "%u", num_macs);
@@ -4433,8 +4432,8 @@ static void readCounters_adaptors(SFSample *sample)
 	SFStr macstr;
 	SFStr_init(&macstr);
 	SFStr_append_mac(&macstr, mac);
-	char fieldName[32];
-	sprintf(fieldName, "MAC_%u", j);
+	char fieldName[64];
+	snprintf(fieldName, 64, "MAC_%u", j);
 	sf_logf_pushPrefix(sample, prefix);
 	sf_logf(sample, fieldName, SFStr_str(&macstr));
 	sf_logf_popPrefix(sample);
@@ -5061,7 +5060,7 @@ static void sf_logf_SFP(SFSample *sample, char *field, uint32_t lane, uint32_t v
     sf_logf_U32(sample, field, val32);
   }
   char fieldName[64];
-  sprintf(fieldName, "%s.%u", field, lane);
+  snprintf(fieldName, 64, "%s.%u", field, lane);
   sf_logf_U32_formatted(sample, "sfp_lane_", fieldName, "%u", val32);
 }
 
@@ -5391,7 +5390,7 @@ static void readRTFlow(SFSample *sample)
       SFLAddress fvaladdr;
       SFStr addrstr;
       u_char fvalmac[6];
-      char fvalmacstr[32];
+      char fvalmacstr[64];
       getString(sample, fname, SFL_MAX_RTMETRIC_KEY_LEN);
       ftype = getData32(sample);
       switch(ftype) {
