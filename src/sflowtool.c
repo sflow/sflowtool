@@ -246,6 +246,8 @@ typedef struct _SFConfig {
   /* general options */
   int keepGoing;
   int allowDNS;
+  /* Anonymize */
+  int anonymize;
 
 } SFConfig;
 
@@ -1776,8 +1778,14 @@ static void decodeIPV4(SFSample *sample)
     memcpy(&ip, ptr, sizeof(ip));
     /* Value copy all ip elements into sample */
     sample->s.ipsrc.type = SFLADDRESSTYPE_IP_V4;
+   if (sfConfig.anonymize == YES) {
+	ip.saddr=ip.saddr&0xffffff;
+    }
     sample->s.ipsrc.address.ip_v4.addr = ip.saddr;
     sample->s.ipdst.type = SFLADDRESSTYPE_IP_V4;
+    if (sfConfig.anonymize == YES) {
+	ip.daddr=ip.daddr&0xffffff;
+    }
     sample->s.ipdst.address.ip_v4.addr = ip.daddr;
     sample->s.dcd_ipProtocol = ip.protocol;
     sample->s.dcd_ipTos = ip.tos;
@@ -1858,10 +1866,20 @@ static void decodeIPV6(SFSample *sample)
     {/* src and dst address */
       SFStr buf;
       sample->s.ipsrc.type = SFLADDRESSTYPE_IP_V6;
+      if (sfConfig.anonymize == YES) {
+      bzero(&sample->s.ipsrc.address, 16);
+      memcpy(&sample->s.ipsrc.address, ptr, 8);
+      }
+      else
       memcpy(&sample->s.ipsrc.address, ptr, 16);
       ptr +=16;
       sf_logf(sample, "srcIP6", printAddress(&sample->s.ipsrc, &buf));
       sample->s.ipdst.type = SFLADDRESSTYPE_IP_V6;
+      if (sfConfig.anonymize == YES) {
+      bzero(&sample->s.ipdst.address, 16);
+      memcpy(&sample->s.ipdst.address, ptr, 8);
+      }
+      else
       memcpy(&sample->s.ipdst.address, ptr, 16);
       ptr +=16;
       sf_logf(sample, "dstIP6", printAddress(&sample->s.ipdst, &buf));
@@ -6453,7 +6471,7 @@ static void process_command_line(int argc, char *argv[])
 
     in = getopt_long(argc,
 		     argv,
-		     "ljJgtTHxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:",
+		     "ljJgtTHxesSD46aAkh?zL:p:r:R:P:c:d:N:f:v:V:",
 		     long_options,
 		     &option_index);
 
@@ -6461,6 +6479,7 @@ static void process_command_line(int argc, char *argv[])
       break;
 
     switch(in) {
+    case 'a': sfConfig.anonymize = YES; break;
     case 'p': sfConfig.sFlowInputPort = atoi(optarg); break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
     case 'T': sfConfig.outputFormat = SFLFMT_PCAP_DISCARD; break;
