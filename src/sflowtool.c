@@ -1576,6 +1576,7 @@ static void decodeLinkLayer(SFSample *sample)
 
   /* assume type_len is an ethernet-type now */
   sample->s.eth_type = type_len;
+  sf_logf_U32(sample, "ethernet_type", sample->s.eth_type);
 
   if(type_len == 0x0800) {
     /* IPV4 - check again that we have enough header bytes */
