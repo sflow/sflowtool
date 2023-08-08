@@ -3137,8 +3137,8 @@ static void readFlowSample_header(SFSample *sample)
     sf_log(sample,"NO_DECODE headerProtocol=%d\n", sample->s.headerProtocol);
     break;
   default:
-    fprintf(ERROUT, "undefined headerProtocol = %d\n", sample->s.headerProtocol);
-    exit(-12);
+    sf_log(sample,"UNKNOWN headerProtocol=%d\n", sample->s.headerProtocol);
+    break;
   }
 
   if(sample->s.gotIPV4) {
