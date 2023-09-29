@@ -1868,7 +1868,7 @@ static void decodeIPV6(SFSample *sample)
       sample->s.ipsrc.type = SFLADDRESSTYPE_IP_V6;
       if (sfConfig.anonymize == YES) {
       bzero(&sample->s.ipsrc.address, 16);
-      memcpy(&sample->s.ipsrc.address, ptr, 8);
+      memcpy(&sample->s.ipsrc.address, ptr, 6);
       }
       else
       memcpy(&sample->s.ipsrc.address, ptr, 16);
@@ -1877,7 +1877,7 @@ static void decodeIPV6(SFSample *sample)
       sample->s.ipdst.type = SFLADDRESSTYPE_IP_V6;
       if (sfConfig.anonymize == YES) {
       bzero(&sample->s.ipdst.address, 16);
-      memcpy(&sample->s.ipdst.address, ptr, 8);
+      memcpy(&sample->s.ipdst.address, ptr, 6);
       }
       else
       memcpy(&sample->s.ipdst.address, ptr, 16);
