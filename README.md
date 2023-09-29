@@ -1,14 +1,16 @@
 # sflowtool
-Print binary sFlow feed to ASCII,  or forward it to other collectors.
+Print binary sFlow feed to ASCII, or forward it to other collectors.
 
-This tool receives sFlow data, and generates either a simple-to-parse tagged-ASCII output,
-or binary output in tcpdump(1) format. It can also generate Cisco NetFlow version 5 datagrams
-and send them to a destination UDP host:port,  or forward the original sFlow feed to a number
-of additional collectors.
+This tool receives sFlow data, and generates ASCII, JSON, CSV, tcpdump(1) or NetFlow(TM) output.
+Options are also available to forward the sFlow feed to additional collectors,  or read packets
+from a capture file and forward as sFlow samples.
 
 Please read the licence terms in ./COPYING.
 
-For more details on the sFlow data format, see http://www.sflow.org.
+For more details on the sFlow data format, see: https://www.sflow.org
+For example switch and router configs see: https://github.com/sflow/config
+For freeware agent on Linux server see: https://github.com/sflow/host-sflow
+For scalable, real-time sFlow analytics see: https://sflow-rt.com
 
 # Build from sources
 
