@@ -7,7 +7,7 @@ from a capture file and forward as sFlow samples.
 
 Please read the licence terms in ./COPYING.
 
-- For more details on the sFlow data format, see: https://www.sflow.org
+- For more details on the sFlow data format, see: http://www.sflow.org
 - For example switch and router configs see: https://github.com/sflow/config
 - For freeware agent on Linux server see: https://github.com/sflow/host-sflow
 - For scalable, real-time sFlow analytics see: https://sflow-rt.com
