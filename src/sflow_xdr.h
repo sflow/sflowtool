@@ -98,7 +98,7 @@ extern "C" {
     sfd_xdr_enc_bytes(buf, mac, 6);
   }
 
-  static uint32_t sfd_xdr_enc_ip(SFDBuf *buf, SFLAddress *ip) {
+  static void sfd_xdr_enc_ip(SFDBuf *buf, SFLAddress *ip) {
     SFD_ASSERT(buf->cursor < (SFD_MAX_SAMPLE_QUADS-2));
     sfd_xdr_enc_int32(buf, ip->type);
     if(ip->type == SFLADDRESSTYPE_IP_V6)

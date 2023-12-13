@@ -4060,7 +4060,7 @@ static void readFlowSample(SFSample *sample, int expanded)
 static char *getReasonCodeName(int reasonCode) {
   int entries = sizeof(sflow_codes) / sizeof(sflow_codes[0]);
   for(int ii = 0; ii < entries; ii++) {
-    if((reasonCode == sflow_codes[ii].code))
+    if(reasonCode == sflow_codes[ii].code)
       return sflow_codes[ii].name;
   }
   return NULL;
