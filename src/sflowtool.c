@@ -3865,64 +3865,13 @@ static void readFlowSample_v2v4(SFSample *sample)
 }
 
 /*_________________---------------------------__________________
-  _________________    readFlowSample         __________________
+  _________________    readFlowSampleElements __________________
   -----------------___________________________------------------
 */
 
-static void readFlowSample(SFSample *sample, int expanded)
+static void readFlowSampleElements(SFSample *sample)
 {
-  SFStr buf;
-  uint32_t num_elements, sampleLength;
-  uint8_t *sampleStart;
-
-  sf_logf(sample, "sampleType", "FLOWSAMPLE");
-  sampleLength = getData32(sample);
-  sampleStart = (uint8_t *)sample->datap;
-  sample->s.samplesGenerated = getData32(sample);
-  if(expanded) {
-    sample->s.ds_class = getData32(sample);
-    sample->s.ds_index = getData32(sample);
-  }
-  else {
-    uint32_t samplerId = getData32(sample);
-    sample->s.ds_class = samplerId >> 24;
-    sample->s.ds_index = samplerId & 0x00ffffff;
-  }
-  sf_logf_U32(sample, "sampleSequenceNo", sample->s.samplesGenerated);
-  sf_logf(sample, "sourceId", printDataSource(sample->s.ds_class, sample->s.ds_index, &buf));
-
-  sample->s.meanSkipCount = getData32(sample);
-  sample->s.samplePool = getData32(sample);
-  sample->s.dropEvents = getData32(sample);
-  sf_logf_U32(sample, "meanSkipCount", sample->s.meanSkipCount);
-  sf_logf_U32(sample, "samplePool", sample->s.samplePool);
-  sf_logf_U32(sample, "dropEvents", sample->s.dropEvents);
-  if(expanded) {
-    sample->s.inputPortFormat = getData32(sample);
-    sample->s.inputPort = getData32(sample);
-    sample->s.outputPortFormat = getData32(sample);
-    sample->s.outputPort = getData32(sample);
-  }
-  else {
-    uint32_t inp, outp;
-    inp = getData32(sample);
-    outp = getData32(sample);
-    sample->s.inputPortFormat = inp >> 30;
-    sample->s.outputPortFormat = outp >> 30;
-    sample->s.inputPort = inp & 0x3fffffff;
-    sample->s.outputPort = outp & 0x3fffffff;
-  }
-
-  sf_logf(sample, "inputPort", printInOutPort(sample->s.inputPort, sample->s.inputPortFormat, &buf));
-  sf_logf(sample, "outputPort", printInOutPort(sample->s.outputPort, sample->s.outputPortFormat, &buf));
-
-  /* clear the CLF record */
-  sfCLF.valid = NO;
-  sfCLF.client[0] = '\0';
-
-  if(sfConfig.outputFormat == SFLFMT_JSON)
-    json_start_ar("elements");
-
+  uint32_t num_elements;
   num_elements = getData32(sample);
   {
     uint32_t el;
@@ -3993,6 +3942,69 @@ static void readFlowSample(SFSample *sample, int expanded)
 	json_end_ob();
     }
   }
+}
+
+/*_________________---------------------------__________________
+  _________________    readFlowSample         __________________
+  -----------------___________________________------------------
+*/
+
+static void readFlowSample(SFSample *sample, int expanded)
+{
+  SFStr buf;
+  uint32_t num_elements, sampleLength;
+  uint8_t *sampleStart;
+
+  sf_logf(sample, "sampleType", "FLOWSAMPLE");
+  sampleLength = getData32(sample);
+  sampleStart = (uint8_t *)sample->datap;
+  sample->s.samplesGenerated = getData32(sample);
+  if(expanded) {
+    sample->s.ds_class = getData32(sample);
+    sample->s.ds_index = getData32(sample);
+  }
+  else {
+    uint32_t samplerId = getData32(sample);
+    sample->s.ds_class = samplerId >> 24;
+    sample->s.ds_index = samplerId & 0x00ffffff;
+  }
+  sf_logf_U32(sample, "sampleSequenceNo", sample->s.samplesGenerated);
+  sf_logf(sample, "sourceId", printDataSource(sample->s.ds_class, sample->s.ds_index, &buf));
+
+  sample->s.meanSkipCount = getData32(sample);
+  sample->s.samplePool = getData32(sample);
+  sample->s.dropEvents = getData32(sample);
+  sf_logf_U32(sample, "meanSkipCount", sample->s.meanSkipCount);
+  sf_logf_U32(sample, "samplePool", sample->s.samplePool);
+  sf_logf_U32(sample, "dropEvents", sample->s.dropEvents);
+  if(expanded) {
+    sample->s.inputPortFormat = getData32(sample);
+    sample->s.inputPort = getData32(sample);
+    sample->s.outputPortFormat = getData32(sample);
+    sample->s.outputPort = getData32(sample);
+  }
+  else {
+    uint32_t inp, outp;
+    inp = getData32(sample);
+    outp = getData32(sample);
+    sample->s.inputPortFormat = inp >> 30;
+    sample->s.outputPortFormat = outp >> 30;
+    sample->s.inputPort = inp & 0x3fffffff;
+    sample->s.outputPort = outp & 0x3fffffff;
+  }
+
+  sf_logf(sample, "inputPort", printInOutPort(sample->s.inputPort, sample->s.inputPortFormat, &buf));
+  sf_logf(sample, "outputPort", printInOutPort(sample->s.outputPort, sample->s.outputPortFormat, &buf));
+
+  /* clear the CLF record */
+  sfCLF.valid = NO;
+  sfCLF.client[0] = '\0';
+
+  if(sfConfig.outputFormat == SFLFMT_JSON)
+    json_start_ar("elements");
+
+  readFlowSampleElements(sample);
+
   lengthCheck(sample, "flow_sample", sampleStart, sampleLength);
   if(sfConfig.outputFormat == SFLFMT_JSON)
     json_end_ar();
@@ -4101,37 +4113,7 @@ static void readDiscardSample(SFSample *sample)
     json_start_ar("elements");
 
   sf_logf_pushPrefix(sample, "discarded_");
-  
-  num_elements = getData32(sample);
-  {
-    uint32_t el;
-    for(el = 0; el < num_elements; el++) {
-      uint32_t tag, length;
-      uint8_t *start;
-      SFStr buf;
-      if(sfConfig.outputFormat == SFLFMT_JSON) {
-	json_start_ob(NULL);
-      }
-      tag = sample->s.elementType = getData32(sample);
-      sf_logf(sample, "flowBlock_tag", printTag(tag, &buf));
-      length = getData32(sample);
-      start = (uint8_t *)sample->datap;
-
-      // TODO: separate fn for flow-sample elements?
-      switch(tag) {
-      case SFLFLOW_HEADER:     readFlowSample_header(sample); break;
-      case SFLFLOW_EX_FUNCTION: readExtendedFunction(sample); break;
-      case SFLFLOW_EX_EGRESS_Q: readExtendedEgressQueue(sample); break;
-      case SFLFLOW_EX_HW_TRAP: readExtendedHardwareTrap(sample); break;
-      case SFLFLOW_EX_LINUX_REASON: readExtendedLinuxReason(sample); break;
-      default: skipTLVRecord(sample, tag, length, "discard_sample_element"); break;
-      }
-      lengthCheck(sample, "discard_sample_element", start, length);
-      if(sfConfig.outputFormat == SFLFMT_JSON)
-	json_end_ob();
-    }
-  }
-
+  readFlowSampleElements(sample);
   sf_logf_popPrefix(sample);
 
   lengthCheck(sample, "discard_sample", sampleStart, sampleLength);
