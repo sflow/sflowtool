@@ -3935,6 +3935,10 @@ static void readFlowSampleElements(SFSample *sample)
       case SFLFLOW_EX_EGRESS_Q: readExtendedEgressQueue(sample); break;
       case SFLFLOW_EX_TRANSIT: readExtendedTransitDelay(sample); break;
       case SFLFLOW_EX_Q_DEPTH: readExtendedQueueDepth(sample); break;
+	/* In discard samples, any of the above may appear along with the following. */
+      case SFLFLOW_EX_FUNCTION: readExtendedFunction(sample); break;
+      case SFLFLOW_EX_HW_TRAP: readExtendedHardwareTrap(sample); break;
+      case SFLFLOW_EX_LINUX_REASON: readExtendedLinuxReason(sample); break;
       default: skipTLVRecord(sample, tag, length, "flow_sample_element"); break;
       }
       lengthCheck(sample, "flow_sample_element", start, length);
