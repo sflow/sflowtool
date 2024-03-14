@@ -242,6 +242,7 @@ typedef struct _SFConfig {
   int listen4;
   int listen6;
   int listenControlled;
+  char *listenAddress;
 
   /* general options */
   int keepGoing;
@@ -5695,7 +5696,7 @@ static void sendSFlowDatagram(void *magic, struct iovec *iov, int iovcnt)
    -----------------_____________________________------------------
 */
 
-static int openInputUDPSocket(uint16_t port)
+static int openInputUDPSocket(char *address, uint16_t port)
 {
   int soc;
   struct sockaddr_in myaddr_in;
@@ -5703,7 +5704,14 @@ static int openInputUDPSocket(uint16_t port)
   /* Create socket */
   memset((char *)&myaddr_in, 0, sizeof(struct sockaddr_in));
   myaddr_in.sin_family = AF_INET;
-  /* myaddr_in6.sin6_addr.s_addr = INADDR_ANY; */
+  if (address) {
+    if (inet_pton(AF_INET, address, &myaddr_in.sin_addr) != 1) {
+      fprintf(ERROUT, "could not parse '%s' as an IPv4 address\n", address);
+      return -1;
+    }
+  } else {
+    myaddr_in.sin_addr.s_addr = htonl(INADDR_ANY);
+  }
   myaddr_in.sin_port = htons(port);
 
   if ((soc = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
@@ -5729,7 +5737,7 @@ static int openInputUDPSocket(uint16_t port)
    -----------------_____________________________------------------
 */
 
-static int openInputUDP6Socket(uint16_t port)
+static int openInputUDP6Socket(char *address, uint16_t port)
 {
   int soc;
   struct sockaddr_in6 myaddr_in6;
@@ -5737,7 +5745,14 @@ static int openInputUDP6Socket(uint16_t port)
   /* Create socket */
   memset((char *)&myaddr_in6, 0, sizeof(struct sockaddr_in6));
   myaddr_in6.sin6_family = AF_INET6;
-  /* myaddr_in6.sin6_addr = INADDR_ANY; */
+  if (address) {
+    if (inet_pton(AF_INET6, address, &myaddr_in6.sin6_addr) != 1) {
+      fprintf(ERROUT, "could not parse '%s' as an IPv6 address\n", address);
+      return -1;
+    }
+  } else {
+    myaddr_in6.sin6_addr = in6addr_any;
+  }
   myaddr_in6.sin6_port = htons(port);
 
   if ((soc = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
@@ -6361,6 +6376,8 @@ static void instructions(char *command)
   fprintf(ERROUT, "   -4                 -  listen on IPv4 socket only\n");
   fprintf(ERROUT, "   -6                 -  listen on IPv6 socket only\n");
   fprintf(ERROUT, "   -A                 -  listen on both IPv4 and IPv6 sockets\n");
+  fprintf(ERROUT, "   -b <address>       -  listen on selected address only\n");
+  fprintf(ERROUT, "                         (must match address family selected by -4 / -6)\n");
   fprintf(ERROUT, "\n");
   fprintf(ERROUT, "=============== Advanced Tools ===========================================\n");
   fprintf(ERROUT, "| sFlow-RT (real time)  - https://sflow-rt.com                           |\n");
@@ -6435,12 +6452,13 @@ static void process_command_line(int argc, char *argv[])
        { "forwarding-target", required_argument, NULL, 'f' },
        { "include-vlans", required_argument, NULL, 'v' },
        { "exclude-vlans", required_argument, NULL, 'V' },
+       { "listen-address", required_argument, NULL, 'b' },
        { 0,0,0,0 }
       };
 
     in = getopt_long(argc,
 		     argv,
-		     "ljJgtTHxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:",
+		     "ljJgtTHxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:b:",
 		     long_options,
 		     &option_index);
 
@@ -6539,6 +6557,10 @@ static void process_command_line(int argc, char *argv[])
       sfConfig.listen4 = YES;
       sfConfig.listen6 = YES;
       break;
+    case 'b':
+      sfConfig.listenControlled = YES;
+      sfConfig.listenAddress = strdup(optarg);
+      break;
     case 'k':
       sfConfig.keepGoing = YES;
       break;
@@ -6603,10 +6625,10 @@ int main(int argc, char *argv[])
        however,  we will probably need to allow the bind() to be on a particular v4 or v6
        address.  Otherwise it seems likely that we will get a clash(?) */
     if(sfConfig.listen6) {
-      soc6 = openInputUDP6Socket(sfConfig.sFlowInputPort);
+      soc6 = openInputUDP6Socket(sfConfig.listenAddress, sfConfig.sFlowInputPort);
     }
     if(sfConfig.listen4 || (soc6 == -1 && !sfConfig.listenControlled)) {
-      soc4 = openInputUDPSocket(sfConfig.sFlowInputPort);
+      soc4 = openInputUDPSocket(sfConfig.listenAddress, sfConfig.sFlowInputPort);
     }
     if(soc4 == -1 && soc6 == -1) {
       fprintf(ERROUT, "unable to open UDP read socket\n");
