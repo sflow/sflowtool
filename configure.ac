@@ -1,14 +1,14 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_PREREQ(2.57)
+AC_PREREQ([2.71])
 AC_INIT([sflowtool],[6.05])
 AC_CONFIG_SRCDIR([src/sflowtool.c])
 AM_INIT_AUTOMAKE
-AM_CONFIG_HEADER(config.h)
+AM_CONFIG_HEADERS(config.h)
 
 # Checks for programs.
-AC_PROG_CC_C99
+AC_REQUIRE(AC_PROG_CC)
 
 # Checks for libraries.
 
@@ -20,12 +20,11 @@ case "$host" in
 esac
 
 # Checks for header files.
-AC_HEADER_STDC
 AC_CHECK_HEADERS([fcntl.h netdb.h netinet/in.h stdlib.h string.h sys/socket.h sys/time.h unistd.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
-AC_HEADER_TIME
+AC_CHECK_HEADERS_ONCE([sys/time.h])
 
 # Checks for library functions.
 AC_FUNC_SELECT_ARGTYPES
