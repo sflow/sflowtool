@@ -1366,7 +1366,7 @@ static void writeLineCustom(SFSample *sample)
 static void clearLineCustom(SFSample *sample, EnumSFScope scope)
 {
   if(sfConfig.outputFieldList.sampleFields > 0) {
-    fprintf(stderr, "WARNING: clearLineCustom: %u fields ignored\n", sfConfig.outputFieldList.sampleFields);
+    fprintf(ERROUT, "WARNING: clearLineCustom: %u fields ignored\n", sfConfig.outputFieldList.sampleFields);
   }
   for(int ii = 0; ii < sfConfig.outputFieldList.n; ii++) {
     if(sfConfig.outputFieldList.fieldScope[ii] == scope) {
@@ -1441,7 +1441,7 @@ static void receiveError(SFSample *sample, char *errm, int hexdump)
       }
       SFStr_append_hex(&hex, sample->rawSample + ii, toEOL, NO, NO, '-');
       ii += toEOL;
-      fprintf(stderr, "%s\n", SFStr_str(&hex));
+      fprintf(ERROUT, "%s\n", SFStr_str(&hex));
     }
   }
   SFABORT(sample, SF_ABORT_DECODE_ERROR);
