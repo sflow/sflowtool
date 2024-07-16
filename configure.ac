@@ -5,10 +5,8 @@ AC_PREREQ([2.71])
 AC_INIT([sflowtool],[6.06])
 AC_CONFIG_SRCDIR([src/sflowtool.c])
 AM_INIT_AUTOMAKE
-AM_CONFIG_HEADERS(config.h)
-
-# Checks for programs.
-AC_REQUIRE(AC_PROG_CC)
+AC_PROG_CC
+AC_CONFIG_HEADERS(config.h)
 
 # Checks for libraries.
 
