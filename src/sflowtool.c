@@ -1355,6 +1355,7 @@ static void writeLineCustom(SFSample *sample)
       printf("%s", SFStr_str(val));
   }
   printf("\n");
+  sfConfig.outputFieldList.sampleFields = 0; /* consume */
 }
 
 /*_________________---------------------------__________________
@@ -1364,6 +1365,9 @@ static void writeLineCustom(SFSample *sample)
 
 static void clearLineCustom(SFSample *sample, EnumSFScope scope)
 {
+  if(sfConfig.outputFieldList.sampleFields > 0) {
+    fprintf(stderr, "WARNING: clearLineCustom: %u fields ignored\n", sfConfig.outputFieldList.sampleFields);
+  }
   for(int ii = 0; ii < sfConfig.outputFieldList.n; ii++) {
     if(sfConfig.outputFieldList.fieldScope[ii] == scope) {
       SFStr *val = &sfConfig.outputFieldList.values[ii];
@@ -5375,6 +5379,10 @@ static void readRTMetric(SFSample *sample)
       }
     }
   }
+  if(sfConfig.outputFormat == SFLFMT_LINE_CUSTOM) {
+    writeLineCustom(sample);
+    clearLineCustom(sample, SFSCOPE_SAMPLE);
+  }
   lengthCheck(sample, "rtmetric_sample", sampleStart, sampleLength);
 }
 
@@ -5467,6 +5475,10 @@ static void readRTFlow(SFSample *sample)
     }
   }
   lengthCheck(sample, "rtflow_sample", sampleStart, sampleLength);
+  if(sfConfig.outputFormat == SFLFMT_LINE_CUSTOM) {
+    writeLineCustom(sample);
+    clearLineCustom(sample, SFSCOPE_SAMPLE);
+  }
 }
 
 /*_________________---------------------------__________________
