@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.71])
-AC_INIT([sflowtool],[6.05])
+AC_INIT([sflowtool],[6.06])
 AC_CONFIG_SRCDIR([src/sflowtool.c])
 AM_INIT_AUTOMAKE
 AM_CONFIG_HEADERS(config.h)
