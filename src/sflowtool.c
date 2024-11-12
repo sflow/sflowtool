@@ -36,6 +36,8 @@ extern "C" {
 #include "sflow_v2v4.h" /* sFlow v2/4 */
 #include "assert.h"
 #include "sflow_xdr.h" /* sFlow encode */
+#include "uthash.h"
+#include "sflow_untap.h"
 
 #define SPOOFSOURCE 1
 #define YES 1
@@ -211,6 +213,7 @@ typedef struct _SFConfig {
   uint32_t output_sample_pool;
   uint32_t output_sample_seqNo;
   int output_sample_skip;
+  EnumSFLFormat inputFormat;
   EnumSFLFormat outputFormat;
   /* JSON */
   int jsonIndent;
@@ -248,6 +251,14 @@ typedef struct _SFConfig {
   int keepGoing;
   int allowDNS;
 
+  /* 'untap' setup */
+  UTHash *untapHT;
+
+  /* generating sFlow */
+  UTHash *agentDGs;
+
+  /* NetFlow/IPFIX input */
+  UTHash *nfAgents;
 } SFConfig;
 
 /* make the options structure global to the program */
@@ -406,7 +417,6 @@ typedef struct _SFSample {
   jmp_buf env;
 
 #define ERROUT stderr
-
 #ifdef DEBUG
 # define SFABORT(s, r) abort()
 # undef ERROUT
@@ -696,6 +706,34 @@ typedef struct _NFFlowPkt {
   };
 } __attribute__ ((packed)) NFFlowPkt;
 
+/* templates when receiving NetFlow/IPFIX */
+typedef struct _NFTemplateField {
+  uint16_t fieldType;
+  uint16_t fieldLength;
+  uint32_t enterpriseID;
+} NFTemplateField;
+
+typedef struct _NFTemplate {
+  uint32_t options:1;
+  uint32_t templateId;
+  uint32_t scopeFields;
+  uint32_t totalFields;
+  uint32_t totalLength; // sanity check
+  NFTemplateField *fields;
+} NFTemplate;
+
+typedef struct _NFEngine {
+  uint32_t engineTID;
+  uint32_t samplingInterval;
+  uint32_t samplePool;
+  uint32_t samples;
+  UTHash *templates;
+} NFEngine;
+
+typedef struct _NFAgent {
+  SFLAddress agentIP;
+  UTHash *engines;
+} NFAgent;
 
 /* NetFlow functions to send datagrams */
 static void sendNetFlowV5Datagram(SFSample *sample);
@@ -706,6 +744,7 @@ static void (*sendNetFlowDatagram_v6)(SFSample *sample) = NULL;
 
 static void readFlowSample_header(SFSample *sample);
 static void readFlowSample(SFSample *sample, int expanded);
+static int submitSFlowSample(SFSample *sample);
 
 /*_________________---------------------------__________________
   _________________     heap allocation       __________________
@@ -1296,11 +1335,12 @@ int sampleFilterOK(SFSample *sample)
   -----------------___________________________------------------
 */
 
-static void writeFlowLine(SFSample *sample)
+static void writeFlowLine(SFSample *sample, char *prefix)
 {
   SFStr agentIP, srcMAC, dstMAC, srcIP, dstIP;
   /* source */
-  if(printf("FLOW,%s,%d,%d,",
+  if(printf("%s,%s,%d,%d,",
+	    prefix,
 	    printAddress(&sample->agent_addr, &agentIP),
 	    sample->s.inputPort,
 	    sample->s.outputPort) < 0) {
@@ -1946,6 +1986,7 @@ static void readPcapHeader() {
 
 #define DLT_EN10MB	1	  /* from libpcap-0.5: net/bpf.h */
 #define DLT_LINUX_SLL   113       /* Linux "cooked" encapsulation */
+#define DLT_LINUX_SLL2  276       /* Linux "cooked" encapsulation v2 */
 #define PCAP_VERSION_MAJOR 2      /* from libpcap-0.5: pcap.h */
 #define PCAP_VERSION_MINOR 4      /* from libpcap-0.5: pcap.h */
 
@@ -3848,7 +3889,7 @@ static void readFlowSample_v2v4(SFSample *sample)
       break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
-      writeFlowLine(sample);
+      writeFlowLine(sample, "FLOW");
       break;
     case SFLFMT_LINE_CUSTOM:
       /* or custom line-by-line output... */
@@ -4040,7 +4081,7 @@ static void readFlowSample(SFSample *sample, int expanded)
       break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
-      writeFlowLine(sample);
+      writeFlowLine(sample, "FLOW");
       break;
     case SFLFMT_LINE_CUSTOM:
       /* or custom line-by-line output... */
@@ -4050,6 +4091,35 @@ static void readFlowSample(SFSample *sample, int expanded)
       if(sfCLF.valid) {
 	if(printf("%s %s\n", sfCLF.client, sfCLF.http_log) < 0) {
 	  exit(-48);
+	}
+      }
+      break;
+    case SFLFMT_SFLOW:
+      if(sfConfig.untapHT) {
+	// remap and regenerate
+	SFUntap search = {
+	  .tap.addr = sample->agent_addr,
+	  .tap.port = sample->s.inputPort
+	};
+	SFUntap *untap = UTHashGet(sfConfig.untapHT, &search);
+	if(untap) {
+	  // apply overrides, then encode new feed
+	  if(untap->rx.port) {
+	    // masquerade as ingress packet on rx (downstream) end of tapped link
+	    sample->agent_addr = untap->rx.addr;
+	    sample->s.ds_index = untap->rx.port;
+	    sample->s.inputPort = untap->rx.port;
+	    sample->s.outputPort = 0;
+	    submitSFlowSample(sample);
+	  }
+	  if(untap->tx.port) {
+	    // masquerade as egress packet from tx (upstream) end of tapped link
+	    sample->agent_addr = untap->tx.addr;
+	    sample->s.ds_index = untap->tx.port;
+	    sample->s.inputPort = 0;
+	    sample->s.outputPort = untap->tx.port;
+	    submitSFlowSample(sample);
+	  }
 	}
       }
       break;
@@ -4141,7 +4211,10 @@ static void readDiscardSample(SFSample *sample)
       break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
-      /* TODO: writeDiscardLine(sample)? */
+      SFStr_init(&buf);
+      SFStr_append(&buf, "DROP,");
+      SFStr_append(&buf, discardReason);
+      writeFlowLine(sample, SFStr_str(&buf));
       break;
     case SFLFMT_LINE_CUSTOM:
       /* or custom line-by-line output... */
@@ -5110,14 +5183,14 @@ static void readCounters_SFP(SFSample *sample)
     }
     sf_logf_SFP(sample, "index", ll, getData32(sample));
     sf_logf_SFP(sample, "tx_bias_current_uA", ll, getData32(sample));
-    sf_logf_SFP(sample, "tx_power_uW.%u", ll, getData32(sample));
-    sf_logf_SFP(sample, "tx_power_min_uW.%u", ll, getData32(sample));
-    sf_logf_SFP(sample, "tx_power_max_uW.%u", ll, getData32(sample));
-    sf_logf_SFP(sample, "tx_wavelength_nM.%u", ll, getData32(sample));
-    sf_logf_SFP(sample, "rx_power_uW.%u", ll, getData32(sample));
-    sf_logf_SFP(sample, "rx_power_min_uW.%u", ll, getData32(sample));
-    sf_logf_SFP(sample, "rx_power_max_uW.%u", ll, getData32(sample));
-    sf_logf_SFP(sample, "rx_wavelength_nM.%u", ll, getData32(sample));
+    sf_logf_SFP(sample, "tx_power_uW", ll, getData32(sample));
+    sf_logf_SFP(sample, "tx_power_min_uW", ll, getData32(sample));
+    sf_logf_SFP(sample, "tx_power_max_uW", ll, getData32(sample));
+    sf_logf_SFP(sample, "tx_wavelength_nM", ll, getData32(sample));
+    sf_logf_SFP(sample, "rx_power_uW", ll, getData32(sample));
+    sf_logf_SFP(sample, "rx_power_min_uW", ll, getData32(sample));
+    sf_logf_SFP(sample, "rx_power_max_uW", ll, getData32(sample));
+    sf_logf_SFP(sample, "rx_wavelength_nM", ll, getData32(sample));
     if(sfConfig.outputFormat == SFLFMT_JSON)
       json_end_ob();
   }
@@ -5584,45 +5657,67 @@ static void readSFlowDatagram(SFSample *sample)
 }
 
 /*_________________---------------------------__________________
+  _________________   flushSFlowDatagrams     __________________
+  -----------------___________________________------------------
+*/
+
+static void flushSFlowDatagrams(void) {
+  SFDDgram *agentDG;
+  UTHASH_WALK(sfConfig.agentDGs, agentDG) {
+    SFDSend(agentDG);
+  }
+}
+
+/*_________________---------------------------__________________
+  _________________   forwardDatagram         __________________
+  -----------------___________________________------------------
+*/
+
+static void forwardDatagram(SFSample *sample) {
+  SFForwardingTarget *tgt = sfConfig.forwardingTargets;
+  for( ; tgt != NULL; tgt = tgt->nxt) {
+    int bytesSent;
+    if((bytesSent = sendto(tgt->sock,
+			   (const char *)sample->rawSample,
+			   sample->rawSampleLen,
+			   0,
+			   (struct sockaddr *)(&tgt->addr),
+			   sizeof(tgt->addr))) != sample->rawSampleLen) {
+      fprintf(ERROUT, "sendto returned %d (expected %d): %s\n",
+	      bytesSent,
+	      sample->rawSampleLen,
+	      strerror(errno));
+    }
+  }
+  SFForwardingTarget6 *tgt6 = sfConfig.forwardingTargets6;
+  for( ; tgt6 != NULL; tgt6 = tgt6->nxt) {
+    int bytesSent;
+    if((bytesSent = sendto(tgt6->sock,
+			   (const char *)sample->rawSample,
+			   sample->rawSampleLen,
+			   0,
+			   (struct sockaddr *)(&tgt6->addr),
+			   sizeof(tgt6->addr))) != sample->rawSampleLen) {
+      fprintf(ERROUT, "sendto returned %d (expected %d): %s\n",
+	      bytesSent,
+	      sample->rawSampleLen,
+	      strerror(errno));
+    }
+  }
+}
+
+
+/*_________________---------------------------__________________
   _________________  receiveSFlowDatagram     __________________
   -----------------___________________________------------------
 */
 
 static void receiveSFlowDatagram(SFSample *sample)
 {
-  if(sfConfig.forwardingTargets || sfConfig.forwardingTargets6) {
-    /* if we are forwarding, then do nothing else (it might
-       be important from a performance point of view). */
-    SFForwardingTarget *tgt = sfConfig.forwardingTargets;
-    for( ; tgt != NULL; tgt = tgt->nxt) {
-      int bytesSent;
-      if((bytesSent = sendto(tgt->sock,
-			     (const char *)sample->rawSample,
-			     sample->rawSampleLen,
-			     0,
-			     (struct sockaddr *)(&tgt->addr),
-			     sizeof(tgt->addr))) != sample->rawSampleLen) {
-	fprintf(ERROUT, "sendto returned %d (expected %d): %s\n",
-		bytesSent,
-		sample->rawSampleLen,
-		strerror(errno));
-      }
-    }
-    SFForwardingTarget6 *tgt6 = sfConfig.forwardingTargets6;
-    for( ; tgt6 != NULL; tgt6 = tgt6->nxt) {
-      int bytesSent;
-      if((bytesSent = sendto(tgt6->sock,
-			     (const char *)sample->rawSample,
-			     sample->rawSampleLen,
-			     0,
-			     (struct sockaddr *)(&tgt6->addr),
-			     sizeof(tgt6->addr))) != sample->rawSampleLen) {
-	fprintf(ERROUT, "sendto returned %d (expected %d): %s\n",
-		bytesSent,
-		sample->rawSampleLen,
-		strerror(errno));
-      }
-    }
+  if(sfConfig.outputFormat == SFLFMT_FWD) {
+    /* if we are forwarding all ingress datagrams, then do
+       nothing else (may be important for performance) */
+    forwardDatagram(sample);
   }
   else {
     int exceptionVal;
@@ -5654,17 +5749,416 @@ static void receiveSFlowDatagram(SFSample *sample)
     }
     fflush(stdout);
 
-    if(sfConfig.outputFormat == SFLFMT_JSON) {
+    switch(sfConfig.outputFormat) {
+    case SFLFMT_JSON:
       /* reset depth in case an exception left it hanging */
       sfConfig.outputDepth = 0;
       /* add blank line if pretty-printing */
       if(sfConfig.jsonIndent)
 	putchar('\n');
-
-    }
-    else if(sfConfig.outputFormat == SFLFMT_LINE_CUSTOM) {
+      break;
+    case SFLFMT_LINE_CUSTOM:
       /* clear datagram-scoped field values */
       clearLineCustom(sample, SFSCOPE_DATAGRAM);
+      break;
+    case SFLFMT_SFLOW: {
+      /* Flush datagrams here. We might have waited and
+	 done this on a per-second tick, but since the
+	 sender(s) may have already coalesced samples we
+	 can't do that again and stay within the spec. */
+      flushSFlowDatagrams();
+    }
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+/*_________________---------------------------__________________
+  _________________     getNetFlowAgent       __________________
+  -----------------___________________________------------------
+*/
+static NFAgent *getNetFlowAgent(SFSample *sample) {
+  NFAgent search = { .agentIP = sample->agent_addr };
+  NFAgent *agent = UTHashGet(sfConfig.nfAgents, &search);
+  if(agent == NULL) {
+    agent = my_calloc(sizeof(*agent));
+    agent->agentIP = sample->agent_addr;
+    agent->engines = UTHASH_NEW(NFEngine, engineTID, UTHASH_DFLT);
+    UTHashAdd(sfConfig.nfAgents, agent);
+  }
+  return agent;
+}
+
+/*_________________---------------------------__________________
+  _________________     getNetFlowEngine      __________________
+  -----------------___________________________------------------
+*/
+static NFEngine *getNetFlowEngine(NFAgent *agent, uint32_t engineTID) {
+  NFEngine search = { .engineTID = engineTID };
+  NFEngine *engine = UTHashGet(agent->engines, &search);
+  if(engine == NULL) {
+    engine = my_calloc(sizeof(*engine));
+    engine->engineTID = engineTID;
+    engine->templates = UTHASH_NEW(NFTemplate, templateId, UTHASH_DFLT);
+    UTHashAdd(agent->engines, engine);
+  }
+  return engine;
+}
+
+/*_________________---------------------------__________________
+  _________________     getNetFlowTemplate    __________________
+  -----------------___________________________------------------
+*/
+static NFTemplate *getNetFlowTemplate(NFEngine *engine, uint32_t templateId) {
+  NFTemplate search = { .templateId = templateId };
+  NFTemplate *template = UTHashGet(engine->templates, &search);
+  if(template == NULL) {
+    template = my_calloc(sizeof(*template));
+    template->templateId = templateId;
+    UTHashAdd(engine->templates, template);
+  }
+  return template;
+}
+
+/*_________________---------------------------__________________
+  _________________   setTemplateFields       __________________
+  -----------------___________________________------------------
+*/
+
+static int setTemplateFields(NFTemplate *templ, u_int16_t totalFields, u_char *fields, int fields_len, int version)
+{
+  templ->totalFields = totalFields;
+  if(templ->fields)
+    my_free(templ->fields);
+  templ->fields = my_calloc(totalFields * sizeof(NFTemplateField));
+  u_char *end = fields + fields_len;
+  u_char *p = fields;
+  // now go through and byte-swap the fields, detect enterprise-specific fields in IPFIX, and accumulate the template length
+  for(u_int16_t f = 0; f < totalFields; f++) {
+    if(p > (end - 4))
+      return -1; // ran off end
+    uint16_t ftype,flen;
+    ftype = (p[0] << 8) + p[1];
+    flen = (p[2] << 8) + p[3];
+    p+=4;
+    templ->fields[f].fieldType = ftype;
+    templ->fields[f].fieldLength = flen;
+    if(flen != 0xFFFF) {
+      // 0xFFFF means "variable length"
+      templ->totalLength += flen;
+    }
+    if(version == 10 && (ftype & 0x8000) && p <= (end - 4)) {
+      uint32_t eid;
+      // enterprise ID is the next 4 bytes
+      memcpy(&eid, p, 4);
+      p+=4;
+      templ->fields[f].enterpriseID = ntohl(eid);
+    }
+  }
+  return (p - fields);
+}
+
+/*_________________---------------------------__________________
+  _________________       nfValue64           __________________
+  -----------------___________________________------------------
+*/
+
+static uint64_t nfValue64(uint16_t fieldLen, u_char *datap) {
+  uint64_t v64 = 0;
+  for(uint32_t ii = 0; ii < fieldLen; ii++)
+    v64 = (v64 << 8) | datap[ii];
+  return v64;
+}
+
+/*_________________---------------------------__________________
+  _________________   decodeNetFlowRecord     __________________
+  -----------------___________________________------------------
+*/
+static int decodeNetFlowRecord(SFSample *sample, NFAgent *agent, NFEngine *engine, NFTemplate *templ, u_char *fset, uint16_t fsetLen) {
+  u_char *datap = fset + 4; // skip over fsetId/templateId, and fsetLen to get to the data
+  u_char *end = fset + fsetLen;  // may include (or perhaps exclude) padding
+
+  // now walk the fields
+  int records = 0;
+  int ranOffEnd = NO;
+  for( ;  datap < end; records++) {
+    u_char *datap_record_start = datap;
+    for(u_int f = 0; f < templ->totalFields; f++) {
+      uint32_t enterpriseID = templ->fields[f].enterpriseID;
+      uint64_t fieldID = templ->fields[f].fieldType;
+      uint16_t fieldLen = templ->fields[f].fieldLength;
+      // IPFIX variable-length fields have template fieldLen == 65535.  The
+      // first byte of the field will then have the actual length:
+      if(fieldLen == 0xFFFF) {
+	fieldLen = *datap++;
+	// or it might be 0xFF, indicating a 16-bit length:
+	if(fieldLen == 0xFF) {
+	  fieldLen = *datap++;
+	  fieldLen <<= 8;
+	  fieldLen += *datap++;
+	}
+      }
+      if(datap > (end - fieldLen)) {
+	return -1; // ran off end
+      }
+      if(templ->options && f < templ->scopeFields) {
+	// option scope
+      }
+      else {
+	switch(enterpriseID) {
+	case 0:
+	default:
+	  switch(fieldID) {
+	  case 10: // ingressInterface
+	    sample->s.inputPort = nfValue64(fieldLen, datap);
+	    sf_logf_U32(sample, "input_ifIndex", sample->s.inputPort);
+	    break;
+	  case 14: // egressInterface
+	    sample->s.outputPort = nfValue64(fieldLen, datap);
+	    sf_logf_U32(sample, "output_ifIndex", sample->s.outputPort);
+	    break;
+	  case 34: // samplingInterval
+	    engine->samplingInterval = nfValue64(fieldLen, datap);
+	    break;
+	  case 61: // flowDirection
+	    break;
+	  case 144: // exportingProcessId
+	    break;
+	  case 312: // datalinkFrameSize
+	    sample->s.sampledPacketSize = nfValue64(fieldLen, datap);
+	    break;
+	  case 315: // datalinkFrameSection
+	    sample->s.header = datap;
+	    sample->s.headerLen = fieldLen;
+	    break;
+	  default:
+	    // unexpected field
+	    break;
+	  }
+	  break;
+	}
+      }
+      datap += fieldLen;
+    }
+    if(datap <= datap_record_start) {
+      // no advance
+      return -1;
+    }
+  }
+  return records;
+}
+
+/*_________________---------------------------__________________
+  _________________    readNetFlowDatagram    __________________
+  -----------------___________________________------------------
+*/
+
+static void readNetFlowDatagram(SFSample *sample)
+{
+  uint32_t samplesInPacket;
+  SFStr buf;
+
+  /* log some datagram info */
+  sfConfig.currentFieldScope = SFSCOPE_DATAGRAM;
+  sf_logf(sample, "datagramSourceIP", printAddress(&sample->sourceIP, &buf));
+  sf_logf_U32(sample, "datagramSize", sample->rawSampleLen);
+  sf_logf_U32(sample, "unixSecondsUTC", sample->readTimestamp);
+  sf_logf(sample, "localtime", printTimestamp(sample->readTimestamp, &buf));
+  if(sample->pcapTimestamp) {
+    /* thanks to Richard Clayton for this bugfix */
+    sf_logf(sample, "pcapTimestamp", printTimestamp(sample->pcapTimestamp, &buf));
+  }
+  /* check the version */
+  uint32_t ver_len = getData32(sample);
+  sample->datagramVersion = (ver_len >> 16);
+  uint32_t recordLen = (ver_len & 0xFFFF);
+  sf_logf_U32(sample, "datagramVersion", sample->datagramVersion);
+  sf_logf_U32(sample, "datagramSize_IPFIX", recordLen);
+  // Only accept v10 == IPFIX for now (we have seen
+  // IE315 in NetFlow v9 before, but those agents send sFlow now)
+  if(sample->datagramVersion != 10) {
+    receiveError(sample,  "unexpected datagram version number\n", YES);
+  }
+  uint32_t sendTimeUTC = getData32(sample);
+  sf_logf_U32(sample, "unixSecondsUTC_IPFIX", sendTimeUTC);
+  sample->sequenceNo = getData32(sample);
+  sf_logf_U32(sample, "packetSequenceNo", sample->sequenceNo);
+  uint32_t sourceID = getData32(sample);
+  sf_logf_U32(sample, "engineType", (sourceID >> 8));
+  sf_logf_U32(sample, "engineId", (sourceID & 0xFF));
+
+  // TODO: sample->sysUpTime = sample->readTimestamp - <start time unix-seconds?>
+  /* agent address is same as source address (TODO: except with "exporter" IE) */
+  sample->agent_addr = sample->sourceIP;
+  sf_logf(sample, "agent", printAddress(&sample->agent_addr, &buf));
+
+  NFAgent *agent = getNetFlowAgent(sample);
+  NFEngine *engine = getNetFlowEngine(agent, sourceID);
+
+  /* now iterate and pull out the flows and counters samples */
+  sfConfig.currentFieldScope = SFSCOPE_SAMPLE;
+  {
+    uint32_t samp = 0;
+    if(sfConfig.outputFormat == SFLFMT_JSON)
+      json_start_ar("samples");
+    u_int32_t offset = 16; // cursor
+    // because the flow set lengths are padded to be quad aligned, the offset should
+    // get to be exactly evt->dataLen if we consume the whole packet.
+    while(offset < recordLen && ((offset + 4) < sample->rawSampleLen)) {
+      sf_log(sample,"startSample   ----------------------\n");
+      uint32_t currentOffset = offset;
+      u_char *fset = sample->rawSample + offset;
+      int fsetOffset = 0;
+      u_int16_t fsetId = (fset[fsetOffset] << 8) + fset[fsetOffset+1];
+      fsetOffset += 2;
+      u_int16_t fsetLen = (fset[fsetOffset] << 8) + fset[fsetOffset+1];
+      fsetOffset += 2;
+
+      if(fsetLen == 0) {
+	// have to bail completely on the packet here, otherwise we loop forever
+	break;
+      }
+
+      if(fsetId < 256) {
+	// template(s)
+	// detect when we get to the end by testing against (fsetLen - 4) because
+	// fsetLen may have up to 3 bytes of padding to ensure the whole flowSet is
+	// quad-aligned.
+	while(fsetOffset < (fsetLen - 4)) {
+	  int currentFsetOffset = fsetOffset;
+	  // new template or options
+	  u_int16_t templateId = (fset[fsetOffset] << 8) + fset[fsetOffset+1];
+	  fsetOffset += 2;
+	  NFTemplate *template = getNetFlowTemplate(engine, templateId);
+	  u_int16_t totalFields = (fset[fsetOffset] << 8) + fset[fsetOffset+1];
+	  fsetOffset += 2;
+	  if(fsetId == 3 /*options template*/) {
+	    // options template has:
+	    //   option field-count
+	    //   option scope field-count
+	    //   followed by optionScopeCount of type+len pairs
+	    //   followed by optionCount of type+len pairs
+	    // data template just has:
+	    //   fieldCount
+	    //   followed by fieldCount x (type+len) pairs
+	    template->options = YES;
+	    template->scopeFields = (fset[fsetOffset] << 8) + fset[fsetOffset+1];
+	    fsetOffset += 2;
+	  }
+	  int consumed = setTemplateFields(template, totalFields, fset+fsetOffset, fsetLen - fsetOffset, sample->datagramVersion);
+	  if(consumed == -1) {
+	    return;
+	  }
+	  else {
+	    fsetOffset += consumed;
+	  }
+	  if(fsetOffset <= currentFsetOffset) {
+	    // no advance
+	    break;
+	  }
+	}
+      }
+      else {
+	// data records: do we have a template for this one?
+	NFTemplate *templ = getNetFlowTemplate(engine, fsetId);
+	if(templ) {
+	  decodeNetFlowRecord(sample, agent, engine, templ, fset, fsetLen);
+	  if(sample->s.header
+	     && sample->s.headerLen) {
+	    sample->s.headerProtocol = SFLHEADER_ETHERNET_ISO8023;
+	    sample->s.ds_index = engine->engineTID;
+	    sample->s.samplesGenerated = ++engine->samples;
+	    sample->s.meanSkipCount = engine->samplingInterval;
+	    engine->samplePool += engine->samplingInterval;
+	    sample->s.samplePool = engine->samplePool;
+	    if(sfConfig.outputFormat == SFLFMT_SFLOW)
+	      submitSFlowSample(sample);
+	    else
+	      decodeLinkLayer(sample);
+	  }
+	}
+      }
+      offset += fsetLen;
+      if(offset <= currentOffset) {
+	// no advance
+	break;
+      }
+    }
+
+    if(sfConfig.outputFormat == SFLFMT_JSON)
+      json_end_ob();
+    else
+      sf_log(sample,"endSample   ----------------------\n");
+  }
+  if(sfConfig.outputFormat == SFLFMT_JSON)
+    json_end_ar();
+}
+
+/*_________________---------------------------__________________
+  _________________  receiveNetFlowDatagram   __________________
+  -----------------___________________________------------------
+Receive IPFIX/NetFlow element 315 (sampled header) and
+marshall into sFlow XDR format. Note that this does not
+represent a valid sFlow feed because counter samples are
+not included, and because the sampling may not be random 1:N.
+So this feature is included only as a testing adaptor.
+*/
+
+static void receiveNetFlowDatagram(SFSample *sample)
+{
+  if(sfConfig.outputFormat == SFLFMT_FWD) {
+    // if we are forwarding then we do nothing else
+    forwardDatagram(sample);
+  }
+  else {
+    int exceptionVal;
+    sample->readTimestamp = (long)time(NULL);
+    if(sfConfig.outputFormat == SFLFMT_JSON) {
+      sfConfig.jsonStart = YES;
+      json_start_ob(NULL);
+    }
+    else {
+      sf_log(sample,"startDatagram =================================\n");
+    }
+
+    if((exceptionVal = setjmp(sample->env)) == 0)  {
+      /* TRY */
+      sample->datap = (uint32_t *)sample->rawSample;
+      sample->endp = (uint8_t *)sample->rawSample + sample->rawSampleLen;
+      readNetFlowDatagram(sample);
+    }
+    else {
+      /* CATCH */
+      fprintf(ERROUT, "caught exception: %d\n", exceptionVal);
+    }
+    if(sfConfig.outputFormat == SFLFMT_JSON) {
+      json_end_ob();
+      printf("\n");
+    }
+    else {
+      sf_log(sample, "endDatagram   =================================\n");
+    }
+    fflush(stdout);
+
+    switch(sfConfig.outputFormat) {
+    case SFLFMT_JSON:
+      /* reset depth in case an exception left it hanging */
+      sfConfig.outputDepth = 0;
+      /* add blank line if pretty-printing */
+      if(sfConfig.jsonIndent)
+	putchar('\n');
+      break;
+    case SFLFMT_LINE_CUSTOM:
+      /* clear datagram-scoped field values */
+      clearLineCustom(sample, SFSCOPE_DATAGRAM);
+      break;
+    case SFLFMT_SFLOW:
+      /* datagrams will be flushed from virtual_tick() */
+      break;
+    default:
+      break;
     }
   }
 }
@@ -5837,17 +6331,18 @@ static void readPacket(int soc)
       sample.sourceIP.address.ip_v4 = v4src;
     }
   }
-  receiveSFlowDatagram(&sample);
+  if(sfConfig.inputFormat == SFLFMT_NETFLOW)
+    receiveNetFlowDatagram(&sample);
+  else
+    receiveSFlowDatagram(&sample);
 }
 
 /*_________________---------------------------__________________
   _________________     decodeLinkLayer       __________________
   -----------------___________________________------------------
-  store the offset to the start of the ipv4 header in the sequence_number field
-  or -1 if not found. Decode the 802.1d if it's there.
 */
 
-static int pcapOffsetToSFlow(uint8_t *start, int len)
+static int pcapOffsetToSFlow(SFSample *sample, uint8_t *start, int len)
 {
   uint8_t *end = start + len;
   uint8_t *ptr = start;
@@ -5863,6 +6358,21 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
       ptr += 6 + 8;
       type_len = (ptr[0] << 8) + ptr[1];
       ptr += 2;
+    }
+    break;
+
+  case DLT_LINUX_SLL2:
+    {
+      type_len = (ptr[0] << 8) + ptr[1];
+      ptr += 4;
+      uint32_t if_index = (ptr[0] << 24) + (ptr[1] << 16) + (ptr[2] << 8) + ptr[3];
+      ptr += 4;
+      uint16_t addr_type = (ptr[0] << 8) + ptr[1];
+      uint8_t pkt_type = ptr[2];
+      uint8_t lladdr_len = ptr[3];
+      ptr += 4;
+      /* but lladdr field is always 8 bytes regardless */
+      ptr += 8;
     }
     break;
 
@@ -5951,6 +6461,9 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
     /*  --------------------------- */
     if((*ptr >> 4) != 4) return -1; /* not version 4 */
     if((*ptr & 15) < 5) return -1; /* not IP (hdr len must be 5 quads or more) */
+    /* Capture source IP */
+    sample->sourceIP.type = SFLADDRESSTYPE_IP_V4;
+    memcpy(&sample->sourceIP.address.ip_v4.addr, ptr + 12, 4);
     ptr += (*ptr & 15) << 2; /* skip over header */
   }
 
@@ -5958,6 +6471,9 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
     /* IPV6 */
     /* look at first byte of header.... */
     if((*ptr >> 4) != 6) return -1; /* not version 6 */
+    /* Capture source IP */
+    sample->sourceIP.type = SFLADDRESSTYPE_IP_V6;
+    memcpy(&sample->sourceIP.address.ip_v6.addr, ptr + 8, 16);
     /* just assume no header options */
     ptr += 40;
   }
@@ -5966,6 +6482,54 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
   ptr += 8;
   if(ptr >= end) return -1;
   return (ptr - start);
+}
+
+/*_________________---------------------------__________________
+  _________________    submitSFlowSample      __________________
+  -----------------___________________________------------------
+*/
+
+static int submitSFlowSample(SFSample *sample)
+{
+  // find or create the context for this agent
+  SFDDgram search = { .agentAddress = sample->agent_addr };
+  SFDDgram *agentDG = UTHashGet(sfConfig.agentDGs, &search);
+  if(agentDG == NULL) {
+    agentDG = SFDNew(SFL_MAX_DATAGRAM_SIZE,
+		     &sample->agent_addr,
+		     0x5F10, /* agentSubId */
+		     NULL, /* cb_magic */
+		     my_cb_alloc,
+		     my_cb_free,
+		     now_mS,
+		     sendSFlowDatagram,
+		     NULL, /* no locks */
+		     NULL /* no err msg */);
+    UTHashAdd(sfConfig.agentDGs, agentDG);
+  }
+  // and give it this sample to encode (just the header)
+  SFDBuf *pktsmp = SFDSampleNew(agentDG);
+  sfd_xdr_start_tlv(pktsmp, SFLFLOW_SAMPLE_EXPANDED);
+  sfd_xdr_enc_int32(pktsmp, sample->s.samplesGenerated);
+  sfd_xdr_enc_int32(pktsmp, sample->s.ds_class);
+  sfd_xdr_enc_int32(pktsmp, sample->s.ds_index);
+  sfd_xdr_enc_int32(pktsmp, sample->s.meanSkipCount);
+  sfd_xdr_enc_int32(pktsmp, sample->s.samplePool);
+  sfd_xdr_enc_int32(pktsmp, sample->s.dropEvents);
+  sfd_xdr_enc_int32(pktsmp, sample->s.inputPortFormat);
+  sfd_xdr_enc_int32(pktsmp, sample->s.inputPort);
+  sfd_xdr_enc_int32(pktsmp, sample->s.outputPortFormat);
+  sfd_xdr_enc_int32(pktsmp, sample->s.outputPort);
+  sfd_xdr_enc_int32(pktsmp, 1); // number of elements
+  sfd_xdr_start_tlv(pktsmp, SFLFLOW_HEADER);
+  sfd_xdr_enc_int32(pktsmp, sample->s.headerProtocol);
+  sfd_xdr_enc_int32(pktsmp, sample->s.sampledPacketSize);
+  sfd_xdr_enc_int32(pktsmp, sample->s.stripped);
+  sfd_xdr_enc_int32(pktsmp, sample->s.headerLen);
+  sfd_xdr_enc_bytes(pktsmp, sample->s.header, sample->s.headerLen);
+  sfd_xdr_end_tlv(pktsmp); // header element
+  sfd_xdr_end_tlv(pktsmp); // flow sample
+  SFDAddSample(agentDG, pktsmp);
 }
 
 /*_________________---------------------------__________________
@@ -6058,12 +6622,15 @@ static int readPcapPacket(FILE *file)
       /* need to skip over the encapsulation in the captured packet.
 	 -- should really do this by checking for 802.2, IP options etc.  but
 	 for now we just assume ethernet + IP + UDP */
-      skipBytes = pcapOffsetToSFlow(buf, hdr.caplen);
       memset(&sample, 0, sizeof(sample));
+      skipBytes = pcapOffsetToSFlow(&sample, buf, hdr.caplen);
       sample.rawSample = buf + skipBytes;
       sample.rawSampleLen = hdr.caplen - skipBytes;
       sample.pcapTimestamp = hdr.ts_sec;
-      receiveSFlowDatagram(&sample);
+      if(sfConfig.inputFormat == SFLFMT_NETFLOW)
+	receiveNetFlowDatagram(&sample);
+      else
+	receiveSFlowDatagram(&sample);
     }
   }
   return 1;
@@ -6161,69 +6728,6 @@ static void parseFieldList(SFFieldList *fieldList, char *start)
       hsearch(e, ENTER);
     }
   }
-}
-
-/*________________---------------------------__________________
-  ________________       lookupAddress       __________________
-  ----------------___________________________------------------
-*/
-
-static int parseOrResolveAddress(char *name, struct sockaddr *sa, SFLAddress *addr, int family, int numeric)
-{
-  struct addrinfo *info = NULL;
-  struct addrinfo hints = { 0 };
-  hints.ai_socktype = SOCK_DGRAM; /* constrain this so we don't get lots of answers */
-  hints.ai_family = family; /* AF_INET, AF_INET6 or 0 */
-  if(numeric) {
-    hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
-  }
-  int err = getaddrinfo(name, NULL, &hints, &info);
-  if(err) {
-    fprintf(ERROUT, "getaddrinfo(%s) failed: %s (expecting %s)\n",
-	    name,
-	    gai_strerror(err),
-	    numeric ? "numeric address" : "hostname or numeric address");
-    /* try again if err == EAI_AGAIN? */
-    return NO;
-  }
-
-  if(info == NULL)
-    return NO;
-
-  /* info now allocated on heap - see freeaddrinfo() below */
-  if(!info->ai_addr) {
-    err = YES;
-  }
-  else {
-    /* answer is now in info - a linked list of answers with sockaddr values.
-       extract the address we want from the first one. */
-    switch(info->ai_family) {
-    case AF_INET:
-      {
-	struct sockaddr_in *ipsoc = (struct sockaddr_in *)info->ai_addr;
-	addr->type = SFLADDRESSTYPE_IP_V4;
-	addr->address.ip_v4.addr = ipsoc->sin_addr.s_addr;
-	if(sa) memcpy(sa, info->ai_addr, info->ai_addrlen);
-      }
-      break;
-    case AF_INET6:
-      {
-	struct sockaddr_in6 *ip6soc = (struct sockaddr_in6 *)info->ai_addr;
-	addr->type = SFLADDRESSTYPE_IP_V6;
-	memcpy(&addr->address.ip_v6, &ip6soc->sin6_addr, 16);
-	if(sa) memcpy(sa, info->ai_addr, info->ai_addrlen);
-      }
-      break;
-    default:
-      fprintf(ERROUT, "getaddrinfo(%s): unexpected address family: %d\n", name, info->ai_family);
-      err = YES;
-      break;
-    }
-  }
-  /* free the dynamically allocated data before returning */
-  freeaddrinfo(info);
-  /* indicate success */
-  return (err == NO);
 }
 
 /*_________________---------------------------__________________
@@ -6411,6 +6915,7 @@ static void process_command_line(int argc, char *argv[])
   sfConfig.listen4 = NO;
   sfConfig.listen6 = YES;
   sfConfig.keepGoing = NO;
+  sfConfig.inputFormat = SFLFMT_SFLOW;
 
   /* change "+v" to "-V"
      and "+4" to "-A"
@@ -6465,12 +6970,15 @@ static void process_command_line(int argc, char *argv[])
        { "include-vlans", required_argument, NULL, 'v' },
        { "exclude-vlans", required_argument, NULL, 'V' },
        { "listen-address", required_argument, NULL, 'b' },
+       { "untap-mappings", required_argument, NULL, 'U' },
+       { "read-ipfix", no_argument, NULL, 'i' },
+       { "convert-ipfix", no_argument, NULL, 'I' },
        { 0,0,0,0 }
       };
 
     in = getopt_long(argc,
 		     argv,
-		     "ljJgtTHxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:b:",
+		     "ljJgtTHxesSDiI46Akh?zL:p:r:R:P:c:d:N:f:v:V:b:U:",
 		     long_options,
 		     &option_index);
 
@@ -6498,6 +7006,13 @@ static void process_command_line(int argc, char *argv[])
       break;
     case 'R':
       sfConfig.pcapSamplingN = atoi(optarg);
+      sfConfig.outputFormat = SFLFMT_SFLOW;
+      break;
+    case 'i':
+      sfConfig.inputFormat = SFLFMT_NETFLOW;
+      break;
+    case 'I':
+      sfConfig.inputFormat = SFLFMT_NETFLOW;
       sfConfig.outputFormat = SFLFMT_SFLOW;
       break;
     case 'P':
@@ -6539,7 +7054,12 @@ static void process_command_line(int argc, char *argv[])
       break;
     case 'f':
       if(addForwardingTarget(optarg) == NO) exit(-35);
-      sfConfig.outputFormat = SFLFMT_FWD;
+      // if we not going to be forwarding synthesized sFlow, then this
+      // means "forward the raw datagrams and do nothing else".  But
+      // when synthesizing sFlow this just sets the collector(s) to
+      // send to.
+      if(sfConfig.outputFormat != SFLFMT_SFLOW)
+	sfConfig.outputFormat = SFLFMT_FWD;
       break;
     case 'V':
       sfConfig.gotVlanFilter = YES;
@@ -6579,6 +7099,13 @@ static void process_command_line(int argc, char *argv[])
     case 'D':
       sfConfig.allowDNS = YES;
       break;
+    case 'U':
+      // read tap to tx/rx info from file
+      sfConfig.untapHT = SFUntapLoad(optarg);
+      // we will be building datagrams for the tapped agents
+      // sFlow output (don't log)
+      sfConfig.outputFormat = SFLFMT_SFLOW;
+      break;
     case 'z':
       fprintf(ERROUT,"%s\n", VERSION);
       exit(0);
@@ -6593,6 +7120,16 @@ static void process_command_line(int argc, char *argv[])
 }
 
 /*_________________---------------------------__________________
+  _________________      virtual_tick         __________________
+  -----------------___________________________------------------
+*/
+
+void virtual_tick(uint64_t mS) {
+  if(sfConfig.outputFormat == SFLFMT_SFLOW)
+    flushSFlowDatagrams();
+}
+
+/*_________________---------------------------__________________
   _________________         main              __________________
   -----------------___________________________------------------
 */
@@ -6603,6 +7140,14 @@ int main(int argc, char *argv[])
 
   /* read the command line */
   process_command_line(argc, argv);
+
+  /* generating sFlow? */
+  if(sfConfig.outputFormat == SFLFMT_SFLOW)
+    sfConfig.agentDGs = UTHASH_NEW(SFDDgram, agentAddress, UTHASH_DFLT);
+
+  /* reading input NetFlow? */
+  if(sfConfig.inputFormat == SFLFMT_NETFLOW)
+    sfConfig.nfAgents = UTHASH_NEW(NFAgent, agentIP, UTHASH_DFLT);
 
   /* reading from file or socket? */
   if(sfConfig.readPcapFileName) {
@@ -6669,6 +7214,7 @@ int main(int argc, char *argv[])
     }
 #else
     while(readPcapPacket(sfConfig.readPcapFile));
+    virtual_tick(now_mS(NULL)); // for final flush
 #endif
   }
   else {
@@ -6676,6 +7222,7 @@ int main(int argc, char *argv[])
     /* set the select mask */
     FD_ZERO(&readfds);
     /* loop reading packets */
+    uint64_t last_tick = now_mS(NULL);
     for(;;) {
       int nfds;
       struct timeval timeout;
@@ -6712,6 +7259,11 @@ int main(int argc, char *argv[])
       if(nfds > 0) {
 	if(soc4 != -1 && FD_ISSET(soc4, &readfds)) readPacket(soc4);
 	if(soc6 != -1 && FD_ISSET(soc6, &readfds)) readPacket(soc6);
+      }
+      uint64_t now = now_mS(NULL);
+      if((now - last_tick) > 1000) {
+	virtual_tick(now);
+	last_tick = now;
       }
     }
   }
