@@ -6886,6 +6886,12 @@ static void instructions(char *command)
 #endif
   fprintf(ERROUT, "   -N version         -  netflow version, 5 or 9 (default 5)\n");
   fprintf(ERROUT,"\n");
+  fprintf(ERROUT,"NetFlow/IPFIX input:\n");
+  fprintf(ERROUT, "   -i                 -  IPFIX input\n");
+  fprintf(ERROUT, "   -I                 -  IPFIX input (IE315) for conversion to sFlow XDR\n");
+  fprintf(ERROUT,"\n");
+  fprintf(ERROUT, "   -U file            -  Untap - remap sFlow to appear from alternate ports\n");
+  fprintf(ERROUT,"\n");
   fprintf(ERROUT,"Filters:\n");
   fprintf(ERROUT, "   -V <vlans>         -  include vlans (e.g. -V 0-20,4091)\n");
   fprintf(ERROUT, "   -v <vlans>         -  exclude vlans\n");
