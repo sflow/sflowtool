@@ -29,7 +29,6 @@ extern "C" {
 #include <inttypes.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <byteswap.h>
 #include <getopt.h>
 
 #include "sflow.h" /* sFlow v5 */
@@ -40,6 +39,17 @@ extern "C" {
 #define SPOOFSOURCE 1
 #define YES 1
 #define NO 0
+
+static uint32_t bswap_32(uint32_t n) {
+  return (((n & 0x000000FF)<<24) +
+	  ((n & 0x0000FF00)<<8) +
+	  ((n & 0x00FF0000)>>8) +
+	  ((n & 0xFF000000)>>24));
+}
+
+static uint16_t bswap_16(uint16_t n) {
+  return ((n >> 8) | (n << 8));
+}
 
 /* define my own IP header struct - to ease portability */
 struct myiphdr
