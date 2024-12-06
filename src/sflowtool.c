@@ -2713,19 +2713,21 @@ static void readExtendedGateway(SFSample *sample)
       seg_type = getData32(sample);
       seg_len = getData32(sample);
       seg_data = sample->datap;
-      skipBytes(sample, seg_len * 4);
-      /* mark the first ASN as the dst_peer_as */
-      if(seg == 0)
-	sample->s.dst_peer_as = ntohl(seg_data[0]);
-      /* make sure the AS sets are in parentheses */
-      if(seg_type == SFLEXTENDED_AS_SET)
-	SFStr_append(&dst_as_path, "(");
-      SFStr_append_array32(&dst_as_path, seg_data, seg_len, YES, '-');
-      if(seg_type == SFLEXTENDED_AS_SET)
+      if(seg_len > 0) {
+	skipBytes(sample, seg_len * 4);
+	/* mark the first ASN as the dst_peer_as */
+	if(seg == 0)
+	  sample->s.dst_peer_as = ntohl(seg_data[0]);
+	/* make sure the AS sets are in parentheses */
+	if(seg_type == SFLEXTENDED_AS_SET)
+	  SFStr_append(&dst_as_path, "(");
+	SFStr_append_array32(&dst_as_path, seg_data, seg_len, YES, '-');
+	if(seg_type == SFLEXTENDED_AS_SET)
 	SFStr_append(&dst_as_path, ")");
-      /* mark the last ASN as the dst_as */
-      if(seg == (segments - 1))
-	sample->s.dst_as = ntohl(seg_data[seg_len - 1]);
+	/* mark the last ASN as the dst_as */
+	if(seg == (segments - 1))
+	  sample->s.dst_as = ntohl(seg_data[seg_len - 1]);
+      }
     }
     sf_logf(sample, "dst_as_path", SFStr_str(&dst_as_path));
   }
