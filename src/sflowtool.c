@@ -29,7 +29,22 @@ extern "C" {
 #include <inttypes.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+
+#if HAVE_BYTESWAP_H
 #include <byteswap.h>
+#else
+#define bswap_16(value)	\
+  ((((value) & 0xff) << 8) | ((value) >> 8))
+  
+#define bswap_32(value)					      \
+  (((uint32_t)bswap_16((uint16_t)((value) & 0xffff)) << 16) | \
+   (uint32_t)bswap_16((uint16_t)((value) >> 16)))
+  
+#define bswap_64(value)					          \
+  (((uint64_t)bswap_32((uint32_t)((value) & 0xffffffff)) << 32) | \
+   (uint64_t)bswap_32((uint32_t)((value) >> 32)))
+#endif  
+
 #include <getopt.h>
 
 #include "sflow.h" /* sFlow v5 */
@@ -202,11 +217,14 @@ typedef struct _SFConfig {
   char *readPcapFileName;
   FILE *readPcapFile;
   struct pcap_file_header readPcapHdr;
+  struct pcap_pkthdr pcapPktHdr;
   int pcapSwap;
+  uint64_t pcapStart_mS;
+  uint64_t pcapNext_mS;
+  uint64_t pcapStartOffset_mS;
   /* sFlow-from-pcap generator */
   uint32_t pcapSamplingN;
   SFDDgram *sFlowDatagram;
-  uint64_t pcap_uS;
   double playback;
   uint32_t output_sample_pool;
   uint32_t output_sample_seqNo;
@@ -5971,38 +5989,55 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
 }
 
 /*_________________---------------------------__________________
-  _________________     readPcapPacket        __________________
+  _________________   readPcapPacketHeader    __________________
   -----------------___________________________------------------
 */
 
-static int readPcapPacket(FILE *file)
+static int readPcapPacketHdr(FILE *file, struct pcap_pkthdr *hdr, uint64_t *pcap_uS)
 {
-  uint8_t buf[SA_MAX_PCAP_PKT];
-  struct pcap_pkthdr hdr;
-  SFSample sample;
-  int skipBytes = 0;
-
-  if(fread(&hdr, sizeof(hdr), 1, file) != 1) {
+  if(fread(hdr, sizeof(*hdr), 1, file) != 1) {
     if(feof(file)) return 0;
     fprintf(ERROUT, "unable to read pcap packet header from %s : %s\n", sfConfig.readPcapFileName, strerror(errno));
     exit(-32);
   }
 
   if(sfConfig.pcapSwap) {
-    hdr.ts_sec = bswap_32(hdr.ts_sec);
-    hdr.ts_usec = bswap_32(hdr.ts_usec);
-    hdr.caplen = bswap_32(hdr.caplen);
-    hdr.len = bswap_32(hdr.len);
+    hdr->ts_sec = bswap_32(hdr->ts_sec);
+    hdr->ts_usec = bswap_32(hdr->ts_usec);
+    hdr->caplen = bswap_32(hdr->caplen);
+    hdr->len = bswap_32(hdr->len);
   }
 
   /* Protect against possible buffer overrun from corrupted pcap file.
      Thanks to Naoki Ogawa for spotting this. */
-  if(hdr.caplen > SA_MAX_PCAP_PKT) {
-    fprintf(ERROUT, "pcap %s : capture-len (%u) too long for read buffer\n", sfConfig.readPcapFileName, hdr.caplen);
+  if(hdr->caplen > SA_MAX_PCAP_PKT) {
+    fprintf(ERROUT, "pcap %s : capture-len (%u) too long for read buffer\n", sfConfig.readPcapFileName, hdr->caplen);
     return 0;
   }
 
-  if(fread(buf, hdr.caplen, 1, file) != 1) {
+  if(pcap_uS) {
+    // tell caller where we are (in pcap uS time)
+    uint64_t t_uS = hdr->ts_sec;
+    t_uS *= 1000000;
+    t_uS += hdr->ts_usec;
+    *pcap_uS = t_uS;
+  }
+
+  return 1;
+}
+
+/*_________________---------------------------__________________
+  _________________     readPcapPacket        __________________
+  -----------------___________________________------------------
+*/
+
+static int readPcapPacket(FILE *file, struct pcap_pkthdr *hdr)
+{
+  uint8_t buf[SA_MAX_PCAP_PKT];
+  SFSample sample;
+  int skipBytes = 0;
+
+  if(fread(buf, hdr->caplen, 1, file) != 1) {
     fprintf(ERROUT, "unable to read pcap packet from %s : %s\n", sfConfig.readPcapFileName, strerror(errno));
     exit(-34);
   }
@@ -6026,9 +6061,9 @@ static int readPcapPacket(FILE *file)
       sfd_xdr_enc_int32(pktsmp, 1); // number of elements
       sfd_xdr_start_tlv(pktsmp, SFLFLOW_HEADER);
       sfd_xdr_enc_int32(pktsmp, SFLHEADER_ETHERNET_ISO8023); // header protocol - TODO: learn from pcap
-      sfd_xdr_enc_int32(pktsmp, hdr.len + 4); // frame_length
+      sfd_xdr_enc_int32(pktsmp, hdr->len + 4); // frame_length
       sfd_xdr_enc_int32(pktsmp, 4); // stripped (FCS)
-      uint32_t caplen = hdr.caplen;
+      uint32_t caplen = hdr->caplen;
       if(caplen > SFL_DEFAULT_HEADER_SIZE)
 	caplen = SFL_DEFAULT_HEADER_SIZE;
       sfd_xdr_enc_int32(pktsmp, caplen); // header len
@@ -6038,39 +6073,60 @@ static int readPcapPacket(FILE *file)
       SFDAddSample(sfConfig.sFlowDatagram, pktsmp);
     }
 
-    if(sfConfig.playback < 100) {
-      uint64_t pcap_uS = (hdr.ts_sec * 1000000) + hdr.ts_usec;
-      if(sfConfig.pcap_uS) {
-	// apply playback-speed time compression factor
-	uint64_t wait_uS = (pcap_uS - sfConfig.pcap_uS) / sfConfig.playback;
-	if((now_mS(NULL) - SFDLastSend_mS(sfConfig.sFlowDatagram)) > 500
-	   || wait_uS > 500000)
-	  SFDSend(sfConfig.sFlowDatagram); // flush before sleep
-	usleep(wait_uS);
-      }
-      sfConfig.pcap_uS = pcap_uS;
-    }
+    /* TODO: check this logic - should perhaps be happening in select loop? */
+    if((now_mS(NULL) - SFDLastSend_mS(sfConfig.sFlowDatagram)) > 500)
+      SFDSend(sfConfig.sFlowDatagram);
   }
   else {
     // reading full sFlow datagrams from pcap file
-    if(hdr.caplen < hdr.len) {
+    if(hdr->caplen < hdr->len) {
       fprintf(ERROUT, "incomplete datagram (pcap snaplen too short)\n");
     }
     else {
       /* need to skip over the encapsulation in the captured packet.
 	 -- should really do this by checking for 802.2, IP options etc.  but
 	 for now we just assume ethernet + IP + UDP */
-      skipBytes = pcapOffsetToSFlow(buf, hdr.caplen);
+      skipBytes = pcapOffsetToSFlow(buf, hdr->caplen);
       memset(&sample, 0, sizeof(sample));
       sample.rawSample = buf + skipBytes;
-      sample.rawSampleLen = hdr.caplen - skipBytes;
-      sample.pcapTimestamp = hdr.ts_sec;
+      sample.rawSampleLen = hdr->caplen - skipBytes;
+      sample.pcapTimestamp = hdr->ts_sec;
       receiveSFlowDatagram(&sample);
     }
   }
   return 1;
 }
 
+
+/*_________________---------------------------__________________
+  _________________   initPcapPlayback        __________________
+  -----------------___________________________------------------
+*/
+
+static int initPcapPlayback(void) {
+  /* tee up the time-regulated infinite playback */
+  uint64_t pcap_uS = 0;
+  int found = readPcapPacketHdr(sfConfig.readPcapFile, &sfConfig.pcapPktHdr, &pcap_uS);
+  if(found) {
+    sfConfig.pcapStart_mS = pcap_uS / 1000;
+    sfConfig.pcapStartOffset_mS = now_mS(NULL) - sfConfig.pcapStart_mS;
+    sfConfig.pcapNext_mS = sfConfig.pcapStart_mS;
+  }
+  return found;
+}
+
+/*_________________---------------------------__________________
+  _________________   pcapPlaybackNextSend_mS __________________
+  -----------------___________________________------------------
+*/
+
+static uint64_t pcapPlaybackNextSend_mS(void) {
+  double pcap_rel_mS = (double)(sfConfig.pcapNext_mS - sfConfig.pcapStart_mS);
+  double pcap_rel_scaled_mS = pcap_rel_mS / sfConfig.playback;
+  return sfConfig.pcapStartOffset_mS
+    + sfConfig.pcapStart_mS
+    + (uint64_t) pcap_rel_scaled_mS;
+}
 
 /*_________________---------------------------__________________
   _________________     parseVlanFilter       __________________
@@ -6504,7 +6560,9 @@ static void process_command_line(int argc, char *argv[])
       break;
     case 'P':
       sfConfig.playback = atof(optarg);
-      if(sfConfig.playback <= 000001)
+      if(sfConfig.playback <= 0)
+	sfConfig.playback = 0;
+      else if(sfConfig.playback <= 0.00001)
 	sfConfig.playback = 0.00001;
       break;
     case 'x': sfConfig.removeContent = YES; break;
@@ -6659,21 +6717,26 @@ int main(int argc, char *argv[])
   if(sfConfig.outputFormat == SFLFMT_PCAP
      || sfConfig.outputFormat == SFLFMT_PCAP_DISCARD)
     writePcapHeader();
-  if(sfConfig.readPcapFile) {
-    /* just use a blocking read */
-#ifdef SFL_PCAP_LOOP
+  
+  if(sfConfig.readPcapFile
+     && sfConfig.playback == 0) {
+    /* just read flat out until done */
     for(;;) {
-      uint32_t pcount;
-      while(readPcapPacket(sfConfig.readPcapFile))
-	pcount++;
-      fprintf(ERROUT, "%"PRIu64":%u\n", now_mS(NULL), pcount);
-      fseek(sfConfig.readPcapFile, sizeof(struct pcap_file_header), SEEK_SET);
+      if(!readPcapPacketHdr(sfConfig.readPcapFile, &sfConfig.pcapPktHdr, NULL))
+	break;
+      if(!readPcapPacket(sfConfig.readPcapFile, &sfConfig.pcapPktHdr))
+	break;
     }
-#else
-    while(readPcapPacket(sfConfig.readPcapFile));
-#endif
   }
   else {
+    /* use select loop */
+
+    if(sfConfig.readPcapFile
+       && sfConfig.playback != 0) {
+      /* tee up the time-regulated infinite playback */
+      initPcapPlayback();
+    }
+
     fd_set readfds;
     /* set the select mask */
     FD_ZERO(&readfds);
@@ -6715,6 +6778,40 @@ int main(int argc, char *argv[])
 	if(soc4 != -1 && FD_ISSET(soc4, &readfds)) readPacket(soc4);
 	if(soc6 != -1 && FD_ISSET(soc6, &readfds)) readPacket(soc6);
       }
+
+      if(sfConfig.pcapStartOffset_mS) {
+	/* in monotonic time, when should the next packet go out? */
+	uint64_t send_mS =  pcapPlaybackNextSend_mS();
+	uint64_t now = now_mS(NULL);
+	int atEOF = 0;
+	// printf("now=%lu, send_mS=%lu\n", now, send_mS);
+	/* keep sending pcap packets until we catch up to monotonic "now" */
+	while(now > send_mS) {
+	  uint64_t pcap_uS = 0;
+	  if(readPcapPacket(sfConfig.readPcapFile, &sfConfig.pcapPktHdr) == 0
+	     || readPcapPacketHdr(sfConfig.readPcapFile, &sfConfig.pcapPktHdr, &pcap_uS) == 0) {
+	    atEOF = 1;
+	    break;
+	  }
+	  else {
+	    uint64_t pcap_mS = pcap_uS / 1000;
+	    /* insist that pcapNext_mS must never go backwards */
+	    if(pcap_mS >= sfConfig.pcapNext_mS)
+	      sfConfig.pcapNext_mS = pcap_mS;
+	    send_mS = pcapPlaybackNextSend_mS();
+	    // printf("now=%lu, pcap_mS=%lu pcapNext_mS=%lu send_mS=%lu\n",
+	    //	   now, pcap_mS, sfConfig.pcapNext_mS, send_mS);
+	  }
+	}
+	if(atEOF) {
+	  /* seek back to start of file */
+	  fseek(sfConfig.readPcapFile, sizeof(struct pcap_file_header), SEEK_SET);
+	  /* and restart the playback */
+	  initPcapPlayback();
+	}
+	   
+      }
+
     }
   }
   return 0;
