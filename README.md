@@ -67,6 +67,9 @@ like this:
 
 % ./sflowtool -p 6343 -f localhost/7777 -f localhost/7778 -f collector.mysite.com/6343
 
+To replay an sFlow feed captured in a tcpdump file with 10x time compression:
+
+% ./sflowtool -r sflow.pcap -f localhost/7778 -f -P 10
 
 # Example Output
 
