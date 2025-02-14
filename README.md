@@ -12,6 +12,9 @@ Please read the licence terms in ./COPYING.
 - For freeware agent on Linux server see: https://github.com/sflow/host-sflow
 - For scalable, real-time sFlow analytics see: https://sflow-rt.com
 
+# Run under docker
+	docker run sflow/sflowtool
+ 
 # Build from sources
 
 	./boot.sh
