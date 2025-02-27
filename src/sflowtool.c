@@ -168,6 +168,7 @@ typedef union _SFSockAddr {
 typedef enum { SFLFMT_FULL=0,
 	       SFLFMT_PCAP,
 	       SFLFMT_PCAP_DISCARD,
+	       SFLFMT_PCAP_DGRAM,
 	       SFLFMT_LINE,
 	       SFLFMT_LINE_CUSTOM,
 	       SFLFMT_NETFLOW,
@@ -2008,6 +2009,52 @@ static void writePcapPacket(SFSample *sample) {
   bytes = sizeof(hdr);
   memcpy(buf+bytes, sample->s.header, hdr.caplen);
   bytes += hdr.caplen;
+
+  if(fwrite(buf, bytes, 1, stdout) != 1) {
+    fprintf(ERROUT, "writePcapPacket: packet write failed: %s\n", strerror(errno));
+    exit(-3);
+  }
+  fflush(stdout);
+}
+
+/*_________________------------------------__________________
+  _________________   writePcapDatagram    __________________
+  -----------------________________________------------------
+*/
+
+static void writePcapDatagram(SFSample *sample) {
+  static char dummyEthernet[] = { 0,0,0,0,0,1, 0,0,0,0,0,2 , 0x08,0x00 };
+  static struct myiphdr dummyIP = { 0x45, 0, 0, 0, 0, 64, 17, 0, 0, 0 };
+  static struct myudphdr dummyUDP = { 0, 0, 0, 0 };
+  dummyUDP.uh_sport = dummyUDP.uh_dport = htons(6343);
+  char buf[SA_MAX_SFLOW_PKT_SIZ];
+  int bytes = 0;
+  int pduLen = sample->rawSampleLen;
+  int totalBytes = sizeof(dummyEthernet) + sizeof(dummyIP) + sizeof(dummyUDP) + pduLen;
+  struct pcap_pkthdr hdr;
+  hdr.ts_sec = sample->readTimestamp;
+  hdr.ts_usec = 0;
+  hdr.caplen = hdr.len = totalBytes;
+
+  /* prepare the whole thing in a buffer first, in case we are piping the output
+     to another process and the reader expects it all to appear at once... */
+  /* pcap hdr */
+  memcpy(buf, &hdr, sizeof(hdr));
+  bytes = sizeof(hdr);
+  /* dummy ethernet */
+  memcpy(buf+bytes, dummyEthernet, sizeof(dummyEthernet));
+  bytes += sizeof(dummyEthernet);
+  /* dummy ip */
+  dummyIP.tot_len = htons(sizeof(dummyUDP) + pduLen);
+  memcpy(buf+bytes, &dummyIP, sizeof(dummyIP));
+  bytes += sizeof(dummyIP);
+  /* dummy udp */
+  dummyUDP.uh_ulen = htons(pduLen);
+  memcpy(buf+bytes, &dummyUDP, sizeof(dummyUDP));
+  bytes += sizeof(dummyUDP);
+  /* the datagram */
+  memcpy(buf+bytes, sample->rawSample, pduLen);
+  bytes += pduLen;
 
   if(fwrite(buf, bytes, 1, stdout) != 1) {
     fprintf(ERROUT, "writePcapPacket: packet write failed: %s\n", strerror(errno));
@@ -3864,6 +3911,7 @@ static void readFlowSample_v2v4(SFSample *sample)
       /* if we are writing tcpdump format, write the next packet record now */
       writePcapPacket(sample);
       break;
+    case SFLFMT_PCAP_DGRAM:
     case SFLFMT_PCAP_DISCARD:
       break;
     case SFLFMT_LINE:
@@ -4056,6 +4104,7 @@ static void readFlowSample(SFSample *sample, int expanded)
       /* if we are writing tcpdump format, write the next packet record now */
       writePcapPacket(sample);
       break;
+    case SFLFMT_PCAP_DGRAM:
     case SFLFMT_PCAP_DISCARD:
       break;
     case SFLFMT_LINE:
@@ -4158,6 +4207,8 @@ static void readDiscardSample(SFSample *sample)
     case SFLFMT_PCAP_DISCARD:
       /* if we are writing tcpdump format, write the next packet record now */
       writePcapPacket(sample);
+      break;
+    case SFLFMT_PCAP_DGRAM:
       break;
     case SFLFMT_LINE:
       /* or line-by-line output... */
@@ -5857,6 +5908,8 @@ static void readPacket(int soc)
       sample.sourceIP.address.ip_v4 = v4src;
     }
   }
+  if(sfConfig.outputFormat == SFLFMT_PCAP_DGRAM)
+    writePcapDatagram(&sample);
   receiveSFlowDatagram(&sample);
 }
 
@@ -6424,6 +6477,8 @@ static void instructions(char *command)
   fprintf(ERROUT,"tcpdump output:\n");
   fprintf(ERROUT, "   -t                 -  output packet samples in binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -T                 -  output discard samples in binary tcpdump(1) format\n");
+  fprintf(ERROUT, "   -M                 -  output whole datagrams in binary tcpdump(1) format\n");
+  fprintf(ERROUT,"\n");
   fprintf(ERROUT,"tcpdump input:\n");
   fprintf(ERROUT, "   -r file            -  read binary tcpdump(1) format\n");
   fprintf(ERROUT, "   -R N               -  encode 1:N sFlow from raw tcpdump(1) file\n");
@@ -6497,6 +6552,7 @@ static void process_command_line(int argc, char *argv[])
        { "grep", no_argument, NULL, 'g' },
        { "write-pcap", no_argument, NULL, 't' },
        { "write-pcap-discards", no_argument, NULL, 'T' },
+       { "write-pcap-datagrams", no_argument, NULL, 'M' },
        { "common-logfile", no_argument, NULL, 'H' },
        { "redact-payload", no_argument, NULL, 'x' },
        { "netflow-peer-as", no_argument, NULL, 'e' },
@@ -6528,7 +6584,7 @@ static void process_command_line(int argc, char *argv[])
 
     in = getopt_long(argc,
 		     argv,
-		     "ljJgtTHxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:b:",
+		     "ljJgtTM<HxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:b:",
 		     long_options,
 		     &option_index);
 
@@ -6539,6 +6595,7 @@ static void process_command_line(int argc, char *argv[])
     case 'p': sfConfig.sFlowInputPort = atoi(optarg); break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
     case 'T': sfConfig.outputFormat = SFLFMT_PCAP_DISCARD; break;
+    case 'M': sfConfig.outputFormat = SFLFMT_PCAP_DGRAM; break;
     case 'l': sfConfig.outputFormat = SFLFMT_LINE; break;
     case 'H': sfConfig.outputFormat = SFLFMT_CLF; break;
     case 'g': sfConfig.outputFormat = SFLFMT_SCRIPT; break;
@@ -6715,7 +6772,8 @@ int main(int argc, char *argv[])
 
   /* if tcpdump format, write the header */
   if(sfConfig.outputFormat == SFLFMT_PCAP
-     || sfConfig.outputFormat == SFLFMT_PCAP_DISCARD)
+     || sfConfig.outputFormat == SFLFMT_PCAP_DISCARD
+     || sfConfig.outputFormat == SFLFMT_PCAP_DGRAM)
     writePcapHeader();
   
   if(sfConfig.readPcapFile
