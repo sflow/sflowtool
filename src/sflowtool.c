@@ -2266,7 +2266,7 @@ static int NFFlowSequenceNo = 0;
 static void sendNetFlowV5Datagram(SFSample *sample)
 {
   NFFlowPkt5 pkt;
-  uint32_t now = sample->pcapTimestamp ?: sample->readTimestamp;
+  uint32_t now = time(NULL);
   uint32_t bytes;
   /* ignore fragments */
   if(sample->s.ip_fragmentOffset > 0) return;
@@ -2345,7 +2345,7 @@ static void sendNetFlowV9Datagram(SFSample *sample)
 {
   NFFlowPkt9 pkt;
 
-  uint32_t now = sample->pcapTimestamp ?: sample->readTimestamp;
+  uint32_t now = time(NULL);
   uint32_t bytes;
   uint16_t i = 0;
   const size_t fieldCount = NFFLOW9_NUM_ELEMENTS;
@@ -2440,7 +2440,7 @@ static void sendNetFlowV9V6Datagram(SFSample *sample)
 {
   NFFlowPkt9_v6 pkt;
 
-  uint32_t now = sample->pcapTimestamp ?: sample->readTimestamp;
+  uint32_t now = time(NULL);
   uint32_t bytes;
   uint16_t i = 0;
   const size_t fieldCount = NFFLOW9_V6_NUM_ELEMENTS;
