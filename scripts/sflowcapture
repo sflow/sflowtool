@@ -1,0 +1,59 @@
+#!/bin/bash
+
+PROG="$0"
+ARGS="$@"
+UDPPORT=6343
+LOGSECS=60
+CAPTURE=/var/log/sflowcapture.pcap
+
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    -p|--port)
+      shift
+      UDPPORT="$1"
+      shift
+      ;;
+    -f|--file)
+      shift
+      CAPTURE="$1"
+      shift
+      ;;
+    -l|--log-secs)
+      shift
+      LOGSECS="$1"
+      shift
+      ;;
+    *)
+      echo "Usage: $PROG [-p <port>] [-f <file>]"
+      exit -1
+      ;;
+  esac
+done
+
+function run_capture() {
+  startIt="$1"
+  if [[ $SFTPID ]]; then
+    echo "$PROG caught signal - killing sflowtool pid=SFTPID $SFTPID"
+    kill -TERM "$SFTPID"
+  fi
+  if [ "$startIt" = "true" ]; then
+    sflowtool -p "$UDPPORT" -M > "$CAPTURE" &
+    SFTPID=$!
+  fi
+}
+
+trap "run_capture true" SIGHUP
+trap "run_capture false; exit 1" SIGTERM SIGINT
+run_capture true
+
+# now we can just observe
+while true; do
+  if [ "$LOGSECS" = "0" ]; then
+    sleep 1000000000
+  else
+    sleep "$LOGSECS"
+    info=`du -h "$CAPTURE"`
+    echo "$PROG $ARGS : $info"
+  fi
+done

@@ -290,7 +290,9 @@ typedef struct _SFSample {
   uint32_t rawSampleLen;
   uint8_t *endp;
   time_t pcapTimestamp;
+  time_t pcapTimestamp_uS;
   time_t readTimestamp;
+  time_t readTimestamp_uS;
 
   /* decode cursor */
   uint32_t *datap;
@@ -1994,8 +1996,14 @@ static void writePcapPacket(SFSample *sample) {
   char buf[SA_MAX_PCAP_PKT];
   int bytes = 0;
   struct pcap_pkthdr hdr;
-  hdr.ts_sec = sample->pcapTimestamp ?: sample->readTimestamp;
-  hdr.ts_usec = 0;
+  if(sample->pcapTimestamp) {
+    hdr.ts_sec = sample->pcapTimestamp;
+    hdr.ts_usec = sample->pcapTimestamp_uS;
+  }
+  else {
+    hdr.ts_sec = sample->readTimestamp;
+    hdr.ts_usec = sample->readTimestamp_uS;
+  }
   hdr.len = sample->s.sampledPacketSize;
   hdr.caplen = sample->s.headerLen;
   if(sfConfig.removeContent && sample->s.offsetToPayload) {
@@ -2033,7 +2041,7 @@ static void writePcapDatagram(SFSample *sample) {
   int totalBytes = sizeof(dummyEthernet) + sizeof(dummyIP) + sizeof(dummyUDP) + pduLen;
   struct pcap_pkthdr hdr;
   hdr.ts_sec = sample->readTimestamp;
-  hdr.ts_usec = 0;
+  hdr.ts_usec = sample->readTimestamp_uS;
   hdr.caplen = hdr.len = totalBytes;
 
   /* prepare the whole thing in a buffer first, in case we are piping the output
@@ -2258,7 +2266,7 @@ static int NFFlowSequenceNo = 0;
 static void sendNetFlowV5Datagram(SFSample *sample)
 {
   NFFlowPkt5 pkt;
-  uint32_t now = (uint32_t)time(NULL);
+  uint32_t now = sample->pcapTimestamp ?: sample->readTimestamp;
   uint32_t bytes;
   /* ignore fragments */
   if(sample->s.ip_fragmentOffset > 0) return;
@@ -2337,7 +2345,7 @@ static void sendNetFlowV9Datagram(SFSample *sample)
 {
   NFFlowPkt9 pkt;
 
-  uint32_t now = (uint32_t)time(NULL);
+  uint32_t now = sample->pcapTimestamp ?: sample->readTimestamp;
   uint32_t bytes;
   uint16_t i = 0;
   const size_t fieldCount = NFFLOW9_NUM_ELEMENTS;
@@ -2432,7 +2440,7 @@ static void sendNetFlowV9V6Datagram(SFSample *sample)
 {
   NFFlowPkt9_v6 pkt;
 
-  uint32_t now = (uint32_t)time(NULL);
+  uint32_t now = sample->pcapTimestamp ?: sample->readTimestamp;
   uint32_t bytes;
   uint16_t i = 0;
   const size_t fieldCount = NFFLOW9_V6_NUM_ELEMENTS;
@@ -3458,7 +3466,7 @@ static void readFlowSample_http(SFSample *sample, uint32_t tag)
   status = sf_log_next32(sample, "http_status");
 
   if(sfConfig.outputFormat == SFLFMT_CLF) {
-    time_t now = time(NULL);
+    time_t now = sample->pcapTimestamp ?: sample->readTimestamp;
     char nowstr[200];
     strftime(nowstr, 200, "%d/%b/%Y:%H:%M:%S %z", localtime(&now)); /* there seems to be no simple portable equivalent to %z */
     snprintf(sfCLF.http_log, SFLFMT_CLF_MAX_LINE, "- %s [%s] \"%s %s HTTP/%u.%u\" %u %"PRIu64" \"%s\" \"%s\"",
@@ -5568,10 +5576,12 @@ static void readSFlowDatagram(SFSample *sample)
   sf_logf(sample, "datagramSourceIP", printAddress(&sample->sourceIP, &buf));
   sf_logf_U32(sample, "datagramSize", sample->rawSampleLen);
   sf_logf_U32(sample, "unixSecondsUTC", sample->readTimestamp);
+  sf_logf_U32(sample, "unixSecondsUTC_uS", sample->readTimestamp_uS);
   sf_logf(sample, "localtime", printTimestamp(sample->readTimestamp, &buf));
   if(sample->pcapTimestamp) {
     /* thanks to Richard Clayton for this bugfix */
     sf_logf(sample, "pcapTimestamp", printTimestamp(sample->pcapTimestamp, &buf));
+    sf_logf_U32(sample, "pcapTimestamp_uS", sample->pcapTimestamp_uS);
   }
 
   /* check the version */
@@ -5697,7 +5707,6 @@ static void receiveSFlowDatagram(SFSample *sample)
   }
   else {
     int exceptionVal;
-    sample->readTimestamp = (long)time(NULL);
     if(sfConfig.outputFormat == SFLFMT_JSON) {
       sfConfig.jsonStart = YES;
       json_start_ob(NULL);
@@ -5894,6 +5903,11 @@ static void readPacket(int soc)
   memset(&sample, 0, sizeof(sample));
   sample.rawSample = (uint8_t *)buf;
   sample.rawSampleLen = cc;
+  struct timeval tvnow;
+  if(gettimeofday(&tvnow, NULL) == 0) {
+    sample.readTimestamp = tvnow.tv_sec;
+    sample.readTimestamp_uS = tvnow.tv_usec;
+  }
   if(alen == sizeof(struct sockaddr_in)) {
     struct sockaddr_in *peer4 = (struct sockaddr_in *)&peer;
     sample.sourceIP.type = SFLADDRESSTYPE_IP_V4;
@@ -6144,6 +6158,7 @@ static int readPcapPacket(FILE *file, struct pcap_pkthdr *hdr)
       sample.rawSample = buf + skipBytes;
       sample.rawSampleLen = hdr->caplen - skipBytes;
       sample.pcapTimestamp = hdr->ts_sec;
+      sample.pcapTimestamp_uS = hdr->ts_usec;
       receiveSFlowDatagram(&sample);
     }
   }
