@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      echo "Usage: $PROG [-p <port>] [-f <file>]"
+      echo "Usage: $PROG [-p <port>] [-f <file>] [-l <logsecs>"]
       exit -1
       ;;
   esac
@@ -40,19 +40,30 @@ function run_capture() {
   if [ "$startIt" = "true" ]; then
     sflowtool -p "$UDPPORT" -M > "$CAPTURE" &
     SFTPID=$!
+  else
+    exit 1
   fi
 }
 
 trap "run_capture true" SIGHUP
-trap "run_capture false; exit 1" SIGTERM SIGINT
+trap "run_capture false" SIGTERM SIGINT
 run_capture true
 
-# now we can just observe
+function shallow_sleep() {
+  # A wait(1) on a background sleep(1) will terminate immediately
+  # on receipt of a SIGHUP so that the trap runs right away.
+  # Otherwise the the trap is only executed when the sleep is done.
+  seconds="$1"
+  sleep $seconds &
+  pid=$!
+  wait $pid
+}
+
 while true; do
   if [ "$LOGSECS" = "0" ]; then
-    sleep 1000000000
+    shallow_sleep 60
   else
-    sleep "$LOGSECS"
+    shallow_sleep "$LOGSECS"
     info=`du -h "$CAPTURE"`
     echo "$PROG $ARGS : $info"
   fi
