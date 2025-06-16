@@ -35,15 +35,15 @@ extern "C" {
 #else
 #define bswap_16(value)	\
   ((((value) & 0xff) << 8) | ((value) >> 8))
-  
+
 #define bswap_32(value)					      \
   (((uint32_t)bswap_16((uint16_t)((value) & 0xffff)) << 16) | \
    (uint32_t)bswap_16((uint16_t)((value) >> 16)))
-  
+
 #define bswap_64(value)					          \
   (((uint64_t)bswap_32((uint32_t)((value) & 0xffffffff)) << 32) | \
    (uint64_t)bswap_32((uint32_t)((value) >> 32)))
-#endif  
+#endif
 
 #include <getopt.h>
 
@@ -55,6 +55,7 @@ extern "C" {
 #define SPOOFSOURCE 1
 #define YES 1
 #define NO 0
+#define SFT_SOCKET_BUFFERSIZE 2000000
 
 /* define my own IP header struct - to ease portability */
 struct myiphdr
@@ -537,7 +538,7 @@ typedef struct _NFFlowPkt5 {
 #define SZ_DST_IP6 16
 #define SZ_NEXT_HOP_IP6 16
 #define SZ_FLOW_LABEL_IP6 4
-  
+
 /* NetFlow v9/ipfix element type */
 
 typedef struct _NFField9 {
@@ -642,7 +643,7 @@ typedef struct _NFFlow9_v6 {
   uint32_t samplingInterval;
 #define NFFLOW9_V6_NUM_ELEMENTS 20
 } __attribute__ ((packed)) NFFlow9_v6;
-  
+
 
 /* NetFlow v9 template flowset */
 
@@ -759,7 +760,7 @@ void my_cb_free(void *magic, void *ptr) {
   _________________      time              __________________
   -----------------________________________------------------
 */
-  
+
 void clockMono(struct timespec *ts) {
   clockid_t monoClock = CLOCK_MONOTONIC;
 #ifdef CLOCK_MONOTONIC_COARSE
@@ -780,6 +781,71 @@ uint64_t now_mS(void *magic) {
   mS += (ts.tv_nsec >> 20); // approximation of / 1e6
   return mS;
 }
+
+/*_________________---------------------------__________________
+  _________________     socket buffer         __________________
+  -----------------___________________________------------------
+*/
+
+  int requestSocketBuffer(int sock, int rcv, int requestSize, char *descr) {
+  int currentBuffer = 0;
+  socklen_t currentBufferLen = sizeof(currentBuffer);
+  int opt = rcv ? SO_RCVBUF : SO_SNDBUF;
+  /* If we have CAP_NET_ADMIN we can insist:
+   * int opt = rcv ? SO_RCVBUFFORCE : SO_SNDBUFFORCE;
+   * but it is probably better to use sysctl to set the allowed max.
+   */
+  if (getsockopt(sock,
+		 SOL_SOCKET,
+		 opt,
+		 &currentBuffer,
+		 &currentBufferLen) < 0) {
+    fprintf(ERROUT, "requestSocketBuffer(%s): getsockopt(req=%d) failed: %s\n",
+	    descr,
+	    requestSize,
+	    strerror(errno));
+    return -1;
+  };
+  if(currentBuffer > requestSize) {
+    /* don't make it smaller, just take the win. */
+    fprintf(ERROUT, "requestSocketBuffer(%s): already have %d\n",
+	    descr,
+	    currentBuffer);
+    return currentBuffer;
+  }
+  /* Submit the request for more. */
+  if(setsockopt(sock,
+		SOL_SOCKET,
+		opt,
+		&requestSize,
+		sizeof(requestSize)) < 0) {
+    fprintf(ERROUT, "requestSocketBuffer(%s): setsockopt(req=%d) failed: %s\n",
+	    descr,
+	    requestSize,
+	    strerror(errno));
+  }
+  /* Read it back one more time to see what we got. */
+  currentBufferLen = sizeof(currentBuffer);
+  if (getsockopt(sock,
+		 SOL_SOCKET,
+		 opt,
+		 &currentBuffer,
+		 &currentBufferLen) < 0) {
+    fprintf(ERROUT, "requestSocketBuffer(%s): getsockopt(req=%d) failed: %s\n",
+	    descr,
+	    requestSize,
+	    strerror(errno));
+    return -1;
+  }
+  if(currentBuffer < requestSize) {
+    fprintf(ERROUT, "requestSocketBuffer(%s): requested %d, but only got %d\n",
+	    descr,
+	    requestSize,
+	    currentBuffer);
+  }
+  return currentBuffer;
+}
+
 /*_________________---------------------------__________________
   _________________     sfl_random            __________________
   -----------------___________________________------------------
@@ -791,11 +857,11 @@ static uint32_t SFLRandom = 1;
 uint32_t sfl_random(uint32_t lim) {
   SFLRandom = ((SFLRandom * 32719) + 3) % 32749;
   return ((SFLRandom % lim) + 1);
-} 
+}
 
 void sfl_random_init(uint32_t seed) {
   SFLRandom = seed;
-} 
+}
 
 /*_________________---------------------------__________________
   _________________      string buffer        __________________
@@ -1145,7 +1211,7 @@ static char *printPrefix(SFSample *sample, SFStr *sb) {
     SFStr_append(sb, sample->s.fieldPrefix[ii]);
   return SFStr_str(sb);
 }
-  
+
 static void sf_log_context(SFSample *sample) {
   SFStr agentIP, tag1, tag2, nowstr;
   time_t now = sample->pcapTimestamp ?: sample->readTimestamp;
@@ -2053,7 +2119,7 @@ static void writePcapDatagram(SFSample *sample) {
   memcpy(buf+bytes, dummyEthernet, sizeof(dummyEthernet));
   bytes += sizeof(dummyEthernet);
   /* dummy ip */
-  dummyIP.tot_len = htons(sizeof(dummyUDP) + pduLen);
+  dummyIP.tot_len = htons(sizeof(dummyIP) + sizeof(dummyUDP) + pduLen);
   memcpy(buf+bytes, &dummyIP, sizeof(dummyIP));
   bytes += sizeof(dummyIP);
   /* dummy udp */
@@ -2120,6 +2186,10 @@ static void openNetFlowSocket_spoof()
     fprintf(ERROUT, "setsockopt( SO_REUSEADDR ) failed\n");
     exit(-14);
   }
+  requestSocketBuffer(sfConfig.netFlowOutputSocket,
+		      NO,
+		      SFT_SOCKET_BUFFERSIZE,
+		      "netflow out(spoof)");
 
   memset(&sfConfig.sendPkt, 0, sizeof(sfConfig.sendPkt));
   sfConfig.sendPkt.ip.version_and_headerLen = 0x45;
@@ -2245,6 +2315,10 @@ static void openNetFlowSocket()
     fprintf(ERROUT, "netflow output socket open failed : %s\n", strerror(errno));
     exit(-4);
   }
+  requestSocketBuffer(sfConfig.netFlowOutputSocket,
+		      NO,
+		      SFT_SOCKET_BUFFERSIZE,
+		      "netflow out");
 
   /* connect to it so we can just use send() or write() to send on it */
   if(connect(sfConfig.netFlowOutputSocket,
@@ -5816,6 +5890,8 @@ static int openInputUDPSocket(char *address, uint16_t port)
   save_fd |= O_NONBLOCK;
   fcntl(soc, F_SETFL, save_fd);
 
+  requestSocketBuffer(soc, YES, SFT_SOCKET_BUFFERSIZE, "sflow/v4 in");
+
   /* Bind the socket */
   if(bind(soc, (struct sockaddr *)&myaddr_in, sizeof(struct sockaddr_in)) == -1) {
     fprintf(ERROUT, "v4 bind() failed, port = %d : %s\n", port, strerror(errno));
@@ -5856,6 +5932,8 @@ static int openInputUDP6Socket(char *address, uint16_t port)
   int save_fd = fcntl(soc, F_GETFL);
   save_fd |= O_NONBLOCK;
   fcntl(soc, F_SETFL, save_fd);
+
+  requestSocketBuffer(soc, YES, SFT_SOCKET_BUFFERSIZE, "sflow/v6 in");
 
   /* Bind the socket */
   if(bind(soc, (struct sockaddr *)&myaddr_in6, sizeof(struct sockaddr_in6)) == -1) {
@@ -5963,7 +6041,7 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
     ptr += 2;
     break;
   }
- 
+
   while(type_len == 0x8100
 	|| type_len == 0x88A8
 	|| type_len == 0x9100
@@ -6408,6 +6486,7 @@ static int addForwardingTarget(char *hostandport)
       fprintf(ERROUT, "socket open (for %s) failed: %s\n", hostandport, strerror(errno));
       return NO;
     }
+    requestSocketBuffer(tgt->sock, NO, SFT_SOCKET_BUFFERSIZE, "sflow/v4 out");
     /* got this far, so must be OK */
     tgt->nxt = sfConfig.forwardingTargets;
     sfConfig.forwardingTargets = tgt;
@@ -6422,6 +6501,7 @@ static int addForwardingTarget(char *hostandport)
       fprintf(ERROUT, "socket open (for %s) failed: %s\n", hostandport, strerror(errno));
       return NO;
     }
+    requestSocketBuffer(tgt6->sock, NO, SFT_SOCKET_BUFFERSIZE, "sflow/v6 out");
     /* got this far, so must be OK */
     tgt6->nxt = sfConfig.forwardingTargets6;
     sfConfig.forwardingTargets6 = tgt6;
@@ -6555,7 +6635,7 @@ static void process_command_line(int argc, char *argv[])
       }
     }
   }
-  
+
   for (;;) {
     int in=0, option_index=0;
     static struct option long_options[] =
@@ -6790,7 +6870,7 @@ int main(int argc, char *argv[])
      || sfConfig.outputFormat == SFLFMT_PCAP_DISCARD
      || sfConfig.outputFormat == SFLFMT_PCAP_DGRAM)
     writePcapHeader();
-  
+
   if(sfConfig.readPcapFile
      && sfConfig.playback == 0) {
     /* just read flat out until done */
@@ -6882,7 +6962,7 @@ int main(int argc, char *argv[])
 	  /* and restart the playback */
 	  initPcapPlayback();
 	}
-	   
+
       }
 
     }
