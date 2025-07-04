@@ -3288,6 +3288,7 @@ static void readFlowSample_header(SFSample *sample)
   case SFLHEADER_POS:
   case SFLHEADER_IEEE80211_AMPDU:
   case SFLHEADER_IEEE80211_AMSDU_SUBFRAME:
+  case SFLHEADER_INFINIBAND:
     sf_log(sample,"NO_DECODE headerProtocol=%d\n", sample->s.headerProtocol);
     break;
   default:
