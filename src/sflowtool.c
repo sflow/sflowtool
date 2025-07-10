@@ -207,6 +207,8 @@ typedef struct _SFFieldList {
 typedef struct _SFConfig {
   /* sflow(R) options */
   uint16_t sFlowInputPort;
+  int sFlowSocketBufferSizeIpv4;
+  int sFlowSocketBufferSizeIpv6;
   /* netflow(TM) options */
   uint16_t netFlowOutputPort;
   SFLAddress netFlowOutputIP;
@@ -5886,6 +5888,13 @@ static int openInputUDPSocket(char *address, uint16_t port)
     return -1;
   }
 
+  if (sfConfig.sFlowSocketBufferSizeIpv4 != -1) {
+    if ((setsockopt(soc, SOL_SOCKET, SO_RCVBUF, &sfConfig.sFlowSocketBufferSizeIpv4, (socklen_t) sizeof(sfConfig.sFlowSocketBufferSizeIpv4))) == -1) {
+      fprintf(ERROUT, "v4 setsockopt( SO_RCVBUF ) failed, %s\n", strerror(errno));
+      return -1;
+    }
+  }
+
   /* make socket non-blocking */
   int save_fd = fcntl(soc, F_GETFL);
   save_fd |= O_NONBLOCK;
@@ -5927,6 +5936,13 @@ static int openInputUDP6Socket(char *address, uint16_t port)
   if ((soc = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
     fprintf(ERROUT, "v6 socket() creation failed, %s\n", strerror(errno));
     exit(-6);
+  }
+
+  if (sfConfig.sFlowSocketBufferSizeIpv6 != -1) {
+    if ((setsockopt(soc, SOL_SOCKET, SO_RCVBUF, &sfConfig.sFlowSocketBufferSizeIpv6, (socklen_t) sizeof(sfConfig.sFlowSocketBufferSizeIpv6))) == -1) {
+      fprintf(ERROUT, "v6 setsockopt( SO_RCVBUF ) failed, %s\n", strerror(errno));
+      return -1;
+    }
   }
 
   /* make socket non-blocking */
@@ -6556,6 +6572,10 @@ static void instructions(char *command)
   fprintf(ERROUT,"general:\n");
   fprintf(ERROUT, "   -k                 -  keep going on non-signal errors rather than aborting\n");
   fprintf(ERROUT, "   -D                 -  allow hosts to be referenced by DNS name\n");
+  fprintf(ERROUT, "   -u                 -  set IPv4 UDP socket buffer size\n");
+  fprintf(ERROUT, "                         (has no effect if sflowtool doesn't listen on IPv4 socket)\n");
+  fprintf(ERROUT, "   -U                 -  set IPv6 UDP socket buffer size\n");
+  fprintf(ERROUT, "                         (has no effect if sflowtool doesn't listen on IPv6 socket)\n");
   fprintf(ERROUT,"\n");
   fprintf(ERROUT,"forwarding:\n");
   fprintf(ERROUT, "   -f host/port       -  forward sflow to IP (or hostname if -D added)\n");
@@ -6620,6 +6640,8 @@ static void process_command_line(int argc, char *argv[])
   sfConfig.listen4 = NO;
   sfConfig.listen6 = YES;
   sfConfig.keepGoing = NO;
+  sfConfig.sFlowSocketBufferSizeIpv4 = -1;
+  sfConfig.sFlowSocketBufferSizeIpv6 = -1;
 
   /* change "+v" to "-V"
      and "+4" to "-A"
@@ -6665,6 +6687,8 @@ static void process_command_line(int argc, char *argv[])
        // ==== argument required ====
        { "fields", required_argument, NULL, 'L' },
        { "port", required_argument, NULL, 'p' },
+       { "socket-buffer-size-ipv4", required_argument, NULL, 'u' },
+       { "socket-buffer-size-ipv6", required_argument, NULL, 'U' },
        { "read-pcap", required_argument, NULL, 'r' },
        { "read-pcap-sampling", required_argument, NULL, 'R' },
        { "read-pcap-playback", required_argument, NULL, 'P' },
@@ -6680,7 +6704,7 @@ static void process_command_line(int argc, char *argv[])
 
     in = getopt_long(argc,
 		     argv,
-		     "ljJgtTM<HxesSD46Akh?zL:p:r:R:P:c:d:N:f:v:V:b:",
+		     "ljJgtTM<HxesSD46Akh?zL:p:u:U:r:R:P:c:d:N:f:v:V:b:",
 		     long_options,
 		     &option_index);
 
@@ -6689,6 +6713,20 @@ static void process_command_line(int argc, char *argv[])
 
     switch(in) {
     case 'p': sfConfig.sFlowInputPort = atoi(optarg); break;
+    case 'u':
+      sfConfig.sFlowSocketBufferSizeIpv4 = atoi(optarg);
+      if (sfConfig.sFlowSocketBufferSizeIpv4 <= 0) {
+        fprintf(ERROUT, "invalid IPv4 socket buffer size %d\n", sfConfig.sFlowSocketBufferSizeIpv4);
+        exit(-1);
+      }
+      break;
+    case 'U':
+      sfConfig.sFlowSocketBufferSizeIpv6 = atoi(optarg);
+      if (sfConfig.sFlowSocketBufferSizeIpv6 <= 0) {
+        fprintf(ERROUT, "invalid IPv6 socket buffer size %d\n", sfConfig.sFlowSocketBufferSizeIpv6);
+        exit(-1);
+      }
+      break;
     case 't': sfConfig.outputFormat = SFLFMT_PCAP; break;
     case 'T': sfConfig.outputFormat = SFLFMT_PCAP_DISCARD; break;
     case 'M': sfConfig.outputFormat = SFLFMT_PCAP_DGRAM; break;
