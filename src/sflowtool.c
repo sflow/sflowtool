@@ -1692,6 +1692,26 @@ static void decodeLinkLayer(SFSample *sample)
     sample->s.gotIPV6 = YES;
     sample->s.offsetToIPV6 = (ptr - start);
   }
+
+  if(type_len == 0x8847) {
+    /* MPLS unicast - 4 bytes */
+    ptr += 4;
+    /* look at first byte of possible IP header.... */
+    if((*ptr >> 4) == 4) {
+      /* IPV4 - check again that we have enough header bytes */
+      if((end - ptr) < sizeof(struct myiphdr)) return;
+      if((*ptr & 15) < 5) return; /* not IP (hdr len must be 5 quads or more) */
+      /* survived all the tests - store the offset to the start of the ip header */
+      sample->s.gotIPV4 = YES;
+      sample->s.offsetToIPV4 = (ptr - start);
+    }
+    else if((*ptr >> 4) == 6) {
+      /* IPV6 */
+      /* survived all the tests - store the offset to the start of the ip6 header */
+      sample->s.gotIPV6 = YES;
+      sample->s.offsetToIPV6 = (ptr - start);
+    }
+  }
 }
 
 /*_________________---------------------------__________________
