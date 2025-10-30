@@ -422,6 +422,9 @@ typedef struct _SFSample {
     /* counter blocks */
     uint32_t statsSamplingInterval;
     uint32_t counterBlockVersion;
+
+    /* timetamp */
+    uint64_t timestamp_nS;
   } s;
 
   /* exception handler context */
@@ -1100,6 +1103,17 @@ static char *printTag(uint32_t tag, SFStr *sb) {
 static char *printTimestamp(time_t ts, SFStr *sb) {
   SFStr_init(sb);
   SFStr_append_timestamp(sb, ts);
+  return SFStr_str(sb);
+}
+
+static char *printTimestamp_nS(uint64_t nS, SFStr *sb) {
+  SFStr_init(sb);
+  uint64_t gig = (uint64_t)1e9;
+  time_t ts = nS / gig;
+  uint64_t fract = nS % gig;
+  SFStr_append_timestamp(sb, ts);
+  SFStr_append(sb, ".");
+  SFStr_append_U64(sb, "%"PRIu64, fract);
   return SFStr_str(sb);
 }
 
@@ -3896,6 +3910,20 @@ static void readExtendedLinuxReason(SFSample *sample)
   }
 }
 
+/*_________________----------------------------__________________
+  _________________  readExtendedTimestamp     __________________
+  -----------------____________________________------------------
+*/
+
+static void readExtendedTimestamp(SFSample *sample)
+{
+  SFStr buf;
+  sf_logf(sample, "extendedType", "timestamp");
+  sample->s.timestamp_nS = getData64(sample);
+  sf_logf_U64(sample, "timestamp_nS", sample->s.timestamp_nS);
+  // sf_logf(sample, "timestamp_fmt", printTimestamp_nS(sample->s.timestamp_nS, &buf));
+}
+
 /*_________________---------------------------__________________
   _________________    readFlowSample_v2v4    __________________
   -----------------___________________________------------------
@@ -4091,6 +4119,7 @@ static void readFlowSampleElements(SFSample *sample)
       case SFLFLOW_EX_EGRESS_Q: readExtendedEgressQueue(sample); break;
       case SFLFLOW_EX_TRANSIT: readExtendedTransitDelay(sample); break;
       case SFLFLOW_EX_Q_DEPTH: readExtendedQueueDepth(sample); break;
+      case SFLFLOW_EX_TIMESTAMP: readExtendedTimestamp(sample); break;
 	/* In discard samples, any of the above may appear along with the following. */
       case SFLFLOW_EX_FUNCTION: readExtendedFunction(sample); break;
       case SFLFLOW_EX_HW_TRAP: readExtendedHardwareTrap(sample); break;
