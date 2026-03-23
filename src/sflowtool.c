@@ -2047,6 +2047,7 @@ static void readPcapHeader() {
 
 #define DLT_EN10MB	1	  /* from libpcap-0.5: net/bpf.h */
 #define DLT_LINUX_SLL   113       /* Linux "cooked" encapsulation */
+#define DLT_LINUX_SLL2   276      /* Linux "cooked" encapsulation v2 */
 #define PCAP_VERSION_MAJOR 2      /* from libpcap-0.5: pcap.h */
 #define PCAP_VERSION_MINOR 4      /* from libpcap-0.5: pcap.h */
 
@@ -6058,6 +6059,20 @@ static int pcapOffsetToSFlow(uint8_t *start, int len)
       ptr += 6 + 8;
       type_len = (ptr[0] << 8) + ptr[1];
       ptr += 2;
+    }
+    break;
+
+  case DLT_LINUX_SLL2:
+    {
+      type_len = (ptr[0] << 8) + ptr[1];
+      // reserved: 2 bytes
+      uint32_t interface_index = (ptr[4] << 24)	+ (ptr[5] << 16) + (ptr[6] << 8) + ptr[7];
+      uint16_t arphrd_type = (ptr[8] << 8) + ptr[9];
+      uint8_t packet_type = ptr[10];
+      uint16_t lladdr_len = ptr[11];
+      /* but lladdr field is always 8 bytes regardless */
+      ptr += 12 + 8;
+      /* TODO: may see different encapsulations depending on value of arphrd_type */
     }
     break;
 
