@@ -1593,6 +1593,15 @@ typedef struct {
   SFLLane *lanes;
 } SFLSFP_counters;
 
+  typedef struct {
+  uint32_t requests;        /* ieee8021PfcRequests */
+  uint32_t indications;     /* ieee8021PfcIndications */
+  uint32_t pause_duration;  /* cumulative pause duration in microseconds */
+  uint32_t storm_detected;  /* number of times watchdog timer expired */
+  uint32_t storm_restored;  /* number of times queue restored to healthy state */
+} SFLPFC_counters;
+#define XDRSIZ_PFC_COUNTERS 20
+
 /* Counters data */
 
 enum SFLCounters_type_tag {
@@ -1605,6 +1614,7 @@ enum SFLCounters_type_tag {
   SFLCOUNTERS_80211        = 6,
   SFLCOUNTERS_LACP         = 7,
   SFLCOUNTERS_SFP          = 10,
+  SFLCOUNTERS_PFC           = 11,
   SFLCOUNTERS_PROCESSOR    = 1001,
   SFLCOUNTERS_RADIO        = 1002,
   SFLCOUNTERS_OFPORT       = 1004,
@@ -1678,6 +1688,7 @@ typedef union _SFLCounters_type {
   SFLPortName portName;
   SFLSFP_counters sfp;
   SFLOVSDP_counters ovsdp;
+  SFLPFC_counters pfc;
 } SFLCounters_type;
 
 typedef struct _SFLCounters_sample_element {

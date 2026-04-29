@@ -4566,6 +4566,20 @@ static void readCounters_OVSDP(SFSample *sample)
 }
 
 /*_________________---------------------------__________________
+  _________________  readCounters_PFC         __________________
+  -----------------___________________________------------------
+*/
+
+static void readCounters_PFC(SFSample *sample)
+{
+  sf_log_next32(sample, "PFC_requests");
+  sf_log_next32(sample, "PFC_indications");
+  sf_log_next32(sample, "PFC_pause_duration");
+  sf_log_next32(sample, "PFC_storm_detected");
+  sf_log_next32(sample, "PFC_storm_restored");
+}
+
+/*_________________---------------------------__________________
   _________________  readCounters_host_hid    __________________
   -----------------___________________________------------------
 */
@@ -5471,6 +5485,7 @@ static void readCountersSample(SFSample *sample, int expanded)
     case SFLCOUNTERS_APP_WORKERS: readCounters_APP_WORKERS(sample); break;
     case SFLCOUNTERS_VDI: readCounters_VDI(sample); break;
     case SFLCOUNTERS_OVSDP: readCounters_OVSDP(sample); break;
+    case SFLCOUNTERS_PFC: readCounters_PFC(sample); break;
     default: skipTLVRecord(sample, tag, length, "counters_sample_element"); break;
     }
     lengthCheck(sample, "counters_sample_element", start, length);
