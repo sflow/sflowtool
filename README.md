@@ -57,13 +57,25 @@ options would be:
 
 % ./sflowtool -p 6343 -c collector.mysite.com -d 9991
 
+Add "-N9" to forward in NetFlow v9 format, which inclues IPv6 flows.
+
 If you compiled with -DSPOOFSOURCE, then you have the option of "spoofing" the IP source
 address of the netflow packets to match the IP address(es) of the original sflow agent(s)...
 
 % ./sflowtool -p 6343 -c collector.mysite.com -d 9991 -S
 
-To replicate the input sflow stream to several collectors, use the "-f host/port" option
-like this:
+To spoof the source address for both IPv4 and IPv6 agents you need to specify both v4 and
+v6 collector addresses (which could be on the same NIC at the collector server):
+
+% ./sflowtool -p 6343 -d 9991 -N9 -S -c 10.0.0.99 -c FEC0::99
+
+Or you might carry the data as sFlow all the way to the NetFlow collector server, and do
+the conversion and spoofing there, sending to localhost:
+
+% ./sflowtool -p 6343 -d 9991 -N9 -S -c 127.0.0.1 -c ::1
+
+To replicate the input sflow stream to additional sFlow collectors, use the "-f host/port"
+option like this:
 
 % ./sflowtool -p 6343 -f localhost/7777 -f localhost/7778 -f collector.mysite.com/6343
 
