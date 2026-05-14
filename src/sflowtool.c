@@ -122,6 +122,11 @@ struct mySendPacket {
   struct myudphdr udp;
   uint8_t data[SPOOFSOURCE_SENDPACKET_SIZE];
 };
+struct mySendPacket6 {
+  struct myip6hdr ip6;
+  struct myudphdr udp;
+  uint8_t data[SPOOFSOURCE_SENDPACKET_SIZE];
+};
 #endif
 
 /* tcpdump file format */
@@ -211,7 +216,10 @@ typedef struct _SFConfig {
   uint16_t netFlowOutputPort;
   SFLAddress netFlowOutputIP;
   SFSockAddr netFlowOutputSA;
+  SFLAddress netFlowOutputIP6;
+  SFSockAddr netFlowOutputSA6;
   int netFlowOutputSocket;
+  int netFlowOutputSocket6;
   uint16_t netFlowPeerAS;
   int disableNetFlowScale;
   uint16_t netFlowVersion;
@@ -244,6 +252,7 @@ typedef struct _SFConfig {
   int spoofSource;
   uint16_t ipid;
   struct mySendPacket sendPkt;
+  struct mySendPacket6 sendPkt6;
   uint32_t packetLen;
 #endif
 
@@ -2183,7 +2192,7 @@ static uint16_t in_checksum(uint16_t *addr, int len)
   -----------------___________________________------------------
 */
 
-static void openNetFlowSocket_spoof()
+static void openNetFlowSocket_spoof4()
 {
   int on;
 
@@ -2204,7 +2213,7 @@ static void openNetFlowSocket_spoof()
   requestSocketBuffer(sfConfig.netFlowOutputSocket,
 		      NO,
 		      SFT_SOCKET_BUFFERSIZE,
-		      "netflow out(spoof)");
+		      "netflow out/v4(spoof)");
 
   memset(&sfConfig.sendPkt, 0, sizeof(sfConfig.sendPkt));
   sfConfig.sendPkt.ip.version_and_headerLen = 0x45;
@@ -2221,14 +2230,51 @@ static void openNetFlowSocket_spoof()
   /* can't do the udp_len or udp_checksum until we know the size of the packet */
 }
 
+static void openNetFlowSocket_spoof6()
+{
+  int on;
+  uint32_t rnd32 = sfl_random(0x00FFFFFF);
+  if((sfConfig.netFlowOutputSocket6 = socket(AF_INET6, SOCK_RAW, IPPROTO_UDP)) == -1) {
+    fprintf(ERROUT, "netflow output raw socket6 open failed\n");
+    exit(-11);
+  }
+  on = 1;
+  if(setsockopt(sfConfig.netFlowOutputSocket6, IPPROTO_IPV6, IPV6_HDRINCL, (char *)&on, sizeof(on)) < 0) {
+    fprintf(ERROUT, "setsockopt( IPV6_HDRINCL ) failed\n");
+    exit(-13);
+  }
+  on = 1;
+  if(setsockopt(sfConfig.netFlowOutputSocket6, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on)) < 0) {
+    fprintf(ERROUT, "setsockopt( SO_REUSEADDR ) failed\n");
+    exit(-14);
+  }
+  requestSocketBuffer(sfConfig.netFlowOutputSocket6,
+		      NO,
+		      SFT_SOCKET_BUFFERSIZE,
+		      "netflow out/v6(spoof)");
 
+  memset(&sfConfig.sendPkt6, 0, sizeof(sfConfig.sendPkt6));
+  sfConfig.sendPkt6.ip6.version_and_priority = 0x60;
+  sfConfig.sendPkt6.ip6.priority_and_label1 = rnd32 & 0x0F;
+  sfConfig.sendPkt6.ip6.label2 = (rnd32 >> 8) & 0xFF;
+  sfConfig.sendPkt6.ip6.label3 = (rnd32 >> 16) & 0xFF;
+  sfConfig.sendPkt6.ip6.nextHeader = IPPROTO_UDP;
+  sfConfig.sendPkt6.ip6.ttl = 64; /* IPDEFTTL */
+  /* can't set the source address yet, but the dest address is known */
+  memcpy(sfConfig.sendPkt6.ip6.daddr.s6_addr, sfConfig.netFlowOutputIP6.address.ip_v6.addr, 16);
+  /* can't do the payloadLength until we know the size of the packet */
+  sfConfig.sendPkt6.udp.uh_dport = htons(sfConfig.netFlowOutputPort);
+  /* might as well set the source port to be the same */
+  sfConfig.sendPkt6.udp.uh_sport = htons(sfConfig.netFlowOutputPort);
+  /* can't do the udp_len or udp_checksum until we know the size of the packet */
+}
 
-/*_________________---------------------------__________________
-  _________________ sendNetFlowDatagram_spoof __________________
-  -----------------___________________________------------------
+/*_________________-----------------------------------__________________
+  _________________ sendNetFlowDatagramToSocket_spoof __________________
+  -----------------___________________________________------------------
 */
 
-static void sendNetFlowDatagram_spoof(SFSample *sample, NFFlowPkt *pkt, int len)
+static void sendNetFlowDatagramToSocket_spoof4(SFSample *sample, NFFlowPkt *pkt, int len)
 {
   uint16_t packetLen = len + sizeof(struct myiphdr) + sizeof(struct myudphdr);
   memcpy(sfConfig.sendPkt.data, (char *)pkt, len);
@@ -2255,6 +2301,7 @@ static void sendNetFlowDatagram_spoof(SFSample *sample, NFFlowPkt *pkt, int len)
       uint8_t proto;
       uint16_t len;
     } h, saved;
+    int bytesSent;
 
     h.src = sfConfig.sendPkt.ip.saddr;
     h.dst = sfConfig.sendPkt.ip.daddr;
@@ -2275,74 +2322,165 @@ static void sendNetFlowDatagram_spoof(SFSample *sample, NFFlowPkt *pkt, int len)
     if (sfConfig.sendPkt.udp.uh_sum == 0) sfConfig.sendPkt.udp.uh_sum = 0xffff;
     /* copy the save bytes back again */
     memcpy(ptr, &saved, sizeof(struct udpmagichdr));
-
-    { /* now send the packet */
-      int bytesSent;
-      struct sockaddr dest;
-      struct sockaddr_in *to = (struct sockaddr_in *)&dest;
-      memset(&dest, 0, sizeof(dest));
-      to->sin_family = AF_INET;
-      to->sin_addr.s_addr = sfConfig.sendPkt.ip.daddr;
-      if((bytesSent = sendto(sfConfig.netFlowOutputSocket,
-			     &sfConfig.sendPkt,
-			     packetLen,
-			     0,
-			     &dest,
-			     sizeof(dest))) != packetLen) {
-	fprintf(ERROUT, "sendto returned %d (expected %d): %s\n", bytesSent, packetLen, strerror(errno));
-      }
+    /* now send the packet */
+    if((bytesSent = sendto(sfConfig.netFlowOutputSocket,
+			   &sfConfig.sendPkt,
+			   packetLen,
+			   0,
+			   (struct sockaddr *)&sfConfig.netFlowOutputSA,
+			   sizeof(sfConfig.netFlowOutputSA.sa4))) != packetLen) {
+      fprintf(ERROUT, "sendto returned %d (expected %d): %s\n", bytesSent, packetLen, strerror(errno));
     }
   }
 }
 
+static void sendNetFlowDatagramToSocket_spoof6(SFSample *sample, NFFlowPkt *pkt, int len)
+{
+  u_int16_t packetLen = len + sizeof(struct myip6hdr) + sizeof(struct myudphdr);
+  memcpy(sfConfig.sendPkt6.data, (char *)pkt, len);
+  sfConfig.sendPkt6.ip6.payloadLength = htons(packetLen - sizeof(struct myip6hdr));
+  sfConfig.sendPkt6.udp.uh_ulen = htons(packetLen - sizeof(struct myip6hdr));
+  /* set the source address to the source address of the input event */
+  memcpy(sfConfig.sendPkt6.ip6.saddr.s6_addr, sample->agent_addr.address.ip_v6.addr, 16);
+  /* UDP Checksum
+   copy out those parts of the IP header that are supposed to be in the UDP checksum,
+   and blat them in front of the udp header (after saving what was there before).
+   Then compute the udp checksum.  Then patch the saved data back again. */
+  /* need to save the data that is 40 bytes from the start of the udp header */
+  {
+    struct udpmagichdr6 {
+      u_char src6[16];
+      u_char dst6[16];
+      uint32_t udpPduLen;
+      uint32_t proto;
+    } h, saved;
+    int bytesSent;
+    memcpy(h.src6, sfConfig.sendPkt6.ip6.saddr.s6_addr, 16);
+    memcpy(h.dst6, sfConfig.sendPkt6.ip6.daddr.s6_addr, 16);
+    h.proto = htonl(IPPROTO_UDP);
+    h.udpPduLen = htonl(len + sizeof(struct myudphdr));
+    char *ptr = (char *)&sfConfig.sendPkt6.udp;
+    ptr -= sizeof(saved);
+    memcpy(&saved, ptr, sizeof(saved));
+    /* copy the magic header into place */
+    memcpy(ptr, &h, sizeof(saved));
+    /* compute the checksum */
+    sfConfig.sendPkt6.udp.uh_sum = 0;
+    sfConfig.sendPkt6.udp.uh_sum = in_checksum((u_int16_t *)ptr,
+					       ntohs(sfConfig.sendPkt6.udp.uh_ulen) + sizeof(struct udpmagichdr6));
+    if (sfConfig.sendPkt6.udp.uh_sum == 0)
+      sfConfig.sendPkt6.udp.uh_sum = 0xffff;
+    /* now put the original header data back */
+    memcpy(ptr, &saved, sizeof(struct udpmagichdr6));
+    /* and send the packet */
+    if((bytesSent = sendto(sfConfig.netFlowOutputSocket6,
+			   &sfConfig.sendPkt6,
+			   packetLen,
+			   0,
+			   (struct sockaddr *)&sfConfig.netFlowOutputSA6,
+			   sizeof(sfConfig.netFlowOutputSA.sa6))) != packetLen) {
+      fprintf(ERROUT, "v6 sendto returned %d (expected %d): %s\n", bytesSent, packetLen, strerror(errno));
+    }
+  }
+}
+
+static void sendNetFlowDatagramToSocket_spoof(SFSample *sample, NFFlowPkt *pkt, int len)
+{
+  if(sample->agent_addr.type == SFLADDRESSTYPE_IP_V6) {
+    if(sfConfig.netFlowOutputSocket6)
+      sendNetFlowDatagramToSocket_spoof6(sample, pkt, len);
+  }
+  else if(sample->agent_addr.type == SFLADDRESSTYPE_IP_V4) {
+    if(sfConfig.netFlowOutputSocket)
+      sendNetFlowDatagramToSocket_spoof4(sample, pkt, len);
+  }
+}
+
 #endif /* SPOOFSOURCE */
+
+/*_________________-----------------------------__________________
+  _________________ sendNetFlowDatagramToSocket __________________
+  -----------------_____________________________------------------
+*/
+
+static void sendNetFlowDatagramToSocket(SFSample *sample, char *pkt, int len)
+{
+  // If both v4 and v6 collectors are specified then we send to both.
+  // (When spoofing the source address we can only send to the one that
+  // matches the address family of the sFlow agent address).
+  if(sfConfig.netFlowOutputSocket)
+    send(sfConfig.netFlowOutputSocket, pkt, len, 0);
+  if(sfConfig.netFlowOutputSocket6)
+    send(sfConfig.netFlowOutputSocket6, pkt, len, 0);
+}
 
 /*_________________---------------------------__________________
   _________________   openNetFlowSocket       __________________
   -----------------___________________________------------------
 */
 
-static void openNetFlowSocket()
+static void openNetFlowSocket4()
 {
-  int family = (sfConfig.netFlowOutputIP.type == SFLADDRESSTYPE_IP_V6) ? AF_INET6 : AF_INET;
-
-#ifdef SPOOFSOURCE
-  if(sfConfig.spoofSource) {
-    if(family == AF_INET6) {
-      fprintf(ERROUT, "IPv6 source spoofing not supported\n");
-      sfConfig.spoofSource = NO;
-    }
-    else {
-      openNetFlowSocket_spoof();
-      return;
-    }
-  }
-#endif
-
-  /* set the port (we could have getaddrinfo() do this for us too) */
-  if(family == AF_INET6)
-    sfConfig.netFlowOutputSA.sa6.sin6_port = ntohs(sfConfig.netFlowOutputPort);
-  else
-    sfConfig.netFlowOutputSA.sa4.sin_port = ntohs(sfConfig.netFlowOutputPort);
-
+  /* IPv4 collector */
+  sfConfig.netFlowOutputSA.sa4.sin_port = ntohs(sfConfig.netFlowOutputPort);
   /* open the socket */
-  if((sfConfig.netFlowOutputSocket = socket(family, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+  if((sfConfig.netFlowOutputSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
     fprintf(ERROUT, "netflow output socket open failed : %s\n", strerror(errno));
     exit(-4);
   }
   requestSocketBuffer(sfConfig.netFlowOutputSocket,
 		      NO,
 		      SFT_SOCKET_BUFFERSIZE,
-		      "netflow out");
-
+		      "netflow out/v4");
   /* connect to it so we can just use send() or write() to send on it */
   if(connect(sfConfig.netFlowOutputSocket,
 	     (struct sockaddr *)&sfConfig.netFlowOutputSA,
-	     family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)) != 0) {
+	     sizeof(struct sockaddr_in)) != 0) {
     fprintf(ERROUT, "connect() to netflow output socket failed: %s\n",
 	    strerror(errno));
     exit(-5);
   }
+}
+
+static void openNetFlowSocket6()
+{
+  /* IPv6 collector */
+  sfConfig.netFlowOutputSA6.sa6.sin6_port = ntohs(sfConfig.netFlowOutputPort);
+  /* open the socket */
+  if((sfConfig.netFlowOutputSocket6 = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+    fprintf(ERROUT, "netflow output socket6 open failed : %s\n", strerror(errno));
+    exit(-4);
+  }
+  requestSocketBuffer(sfConfig.netFlowOutputSocket6,
+		      NO,
+		      SFT_SOCKET_BUFFERSIZE,
+		      "netflow out/v6");
+  /* connect to it so we can just use send() or write() to send on it */
+  if(connect(sfConfig.netFlowOutputSocket6,
+	     (struct sockaddr *)&sfConfig.netFlowOutputSA6,
+	     sizeof(struct sockaddr_in6)) != 0) {
+    fprintf(ERROUT, "connect() to netflow output socket6 failed: %s\n",
+	    strerror(errno));
+    exit(-5);
+  }
+}
+
+static void openNetFlowSocket()
+{
+#ifdef SPOOFSOURCE
+  if(sfConfig.spoofSource) {
+    if(sfConfig.netFlowOutputIP.type == SFLADDRESSTYPE_IP_V4)
+      openNetFlowSocket_spoof4();
+    if(sfConfig.netFlowOutputIP6.type == SFLADDRESSTYPE_IP_V6)
+      openNetFlowSocket_spoof6();
+    return;
+  }
+#endif
+
+  if(sfConfig.netFlowOutputIP.type == SFLADDRESSTYPE_IP_V4)
+    openNetFlowSocket4();
+  if(sfConfig.netFlowOutputIP6.type == SFLADDRESSTYPE_IP_V6)
+    openNetFlowSocket6();
 }
 
 /*_________________---------------------------__________________
@@ -2415,13 +2553,13 @@ static void sendNetFlowV5Datagram(SFSample *sample)
 
 #ifdef SPOOFSOURCE
   if(sfConfig.spoofSource) {
-    sendNetFlowDatagram_spoof(sample, (NFFlowPkt *)&pkt, sizeof(pkt));
+      sendNetFlowDatagramToSocket_spoof(sample, (NFFlowPkt *)&pkt, sizeof(pkt));
     return;
   }
 #endif /* SPOOFSOURCE */
 
   /* send non-blocking */
-  send(sfConfig.netFlowOutputSocket, (char *)&pkt, sizeof(pkt), 0);
+  sendNetFlowDatagramToSocket(sample, (char *)&pkt, sizeof(pkt));
 
 }
 
@@ -2511,13 +2649,13 @@ static void sendNetFlowV9Datagram(SFSample *sample)
 
   #ifdef SPOOFSOURCE
   if(sfConfig.spoofSource) {
-    sendNetFlowDatagram_spoof(sample, (NFFlowPkt *)&pkt, sizeof(pkt));
+    sendNetFlowDatagramToSocket_spoof(sample, (NFFlowPkt *)&pkt, sizeof(pkt));
     return;
   }
   #endif /* SPOOFSOURCE */
 
   /* send non-blocking */
-  send(sfConfig.netFlowOutputSocket, (char *)&pkt, sizeof(pkt), 0);
+  sendNetFlowDatagramToSocket(sample, (char *)&pkt, sizeof(pkt));
 }
 
 /*_________________---------------------------__________________
@@ -2607,13 +2745,13 @@ static void sendNetFlowV9V6Datagram(SFSample *sample)
   pkt.data.flow.flowLabel = htonl(sample->s.dcd_flowLabel);
   #ifdef SPOOFSOURCE
   if(sfConfig.spoofSource) {
-    sendNetFlowDatagram_spoof(sample, (NFFlowPkt *)&pkt, sizeof(pkt));
+    sendNetFlowDatagramToSocket_spoof(sample, (NFFlowPkt *)&pkt, sizeof(pkt));
     return;
   }
   #endif /* SPOOFSOURCE */
 
   /* send non-blocking */
-  send(sfConfig.netFlowOutputSocket, (char *)&pkt, sizeof(pkt), 0);
+  sendNetFlowDatagramToSocket(sample, (char *)&pkt, sizeof(pkt));
 }
 
 /*_________________---------------------------__________________
@@ -4009,7 +4147,8 @@ static void readFlowSample_v2v4(SFSample *sample)
     switch(sfConfig.outputFormat) {
     case SFLFMT_NETFLOW:
       /* if we are exporting netflow and we have an IPv4 layer, compose the datagram now */
-      if(sfConfig.netFlowOutputSocket) {
+      if(sfConfig.netFlowOutputSocket
+	 || sfConfig.netFlowOutputSocket6) {
 	if((sample->s.gotIPV4 || sample->s.gotIPV4Struct)
 	   && sendNetFlowDatagram != NULL)
 	  sendNetFlowDatagram(sample);
@@ -4202,7 +4341,8 @@ static void readFlowSample(SFSample *sample, int expanded)
   if(sampleFilterOK(sample)) {
     switch(sfConfig.outputFormat) {
     case SFLFMT_NETFLOW:
-      if(sfConfig.netFlowOutputSocket) {
+      if(sfConfig.netFlowOutputSocket
+	 || sfConfig.netFlowOutputSocket6) {
 	/* if we are exporting netflow and we have an IPv4 layer, compose the datagram now */
 	if((sample->s.gotIPV4 || sample->s.gotIPV4Struct)
 	   && sendNetFlowDatagram != NULL)
@@ -6584,14 +6724,19 @@ static int addForwardingTarget(char *hostandport)
 static int setNetFlowCollector(char *host)
 {
   int numeric = (sfConfig.allowDNS) ? NO : YES;
+  SFLAddress collectorIP = {};
   if(parseOrResolveAddress(host,
 			   (struct sockaddr *)&sfConfig.netFlowOutputSA,
-			   &sfConfig.netFlowOutputIP,
+			   &collectorIP,
 			   AF_UNSPEC,
 			   numeric) == NO) {
     fprintf(ERROUT, "netflow collector address lookup failed\n");
     return NO;
   }
+  if(collectorIP.type == SFLADDRESSTYPE_IP_V6)
+    sfConfig.netFlowOutputIP6 = collectorIP;
+  else
+    sfConfig.netFlowOutputIP = collectorIP;
   return YES;
 }
 
@@ -6876,6 +7021,9 @@ int main(int argc, char *argv[])
   /* read the command line */
   process_command_line(argc, argv);
 
+  /* seed random number generator */
+  sfl_random_init(time(NULL));
+
   /* reading from file or socket? */
   if(sfConfig.readPcapFileName) {
     if(strcmp(sfConfig.readPcapFileName, "-") == 0) sfConfig.readPcapFile = stdin;
@@ -6922,7 +7070,8 @@ int main(int argc, char *argv[])
 
   /* possible open an output socket for netflow */
   if(sfConfig.netFlowOutputPort != 0
-     && sfConfig.netFlowOutputIP.type != SFLADDRESSTYPE_UNDEFINED)
+     && (sfConfig.netFlowOutputIP.type != SFLADDRESSTYPE_UNDEFINED
+	 || sfConfig.netFlowOutputIP6.type != SFLADDRESSTYPE_UNDEFINED))
     openNetFlowSocket();
 
   /* if tcpdump format, write the header */
