@@ -24,6 +24,8 @@ Please read the licence terms in ./COPYING.
 
 (Start from ./configure if you downloaded a released version.)
 
+After building, run `make check` for the loopback capture regression test (requires Python 3).
+
 # Usage examples
 
 If sFlow is arriving on port 6343, you can pretty-print the data like this:
