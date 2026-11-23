@@ -2147,7 +2147,7 @@ static void writePcapDatagram(SFSample *sample) {
   memcpy(buf+bytes, &dummyIP, sizeof(dummyIP));
   bytes += sizeof(dummyIP);
   /* dummy udp */
-  dummyUDP.uh_ulen = htons(pduLen);
+  dummyUDP.uh_ulen = htons(sizeof(dummyUDP) + pduLen);
   memcpy(buf+bytes, &dummyUDP, sizeof(dummyUDP));
   bytes += sizeof(dummyUDP);
   /* the datagram */
