@@ -2797,13 +2797,13 @@ static double getDouble(SFSample *sample) {
 static void skipBytesN(SFSample *sample, uint32_t skip, uint32_t mult) {
   // expand into wider integer to avoid overflow errors, e.g. if
   // skip >= 0x40000000 and mult == 4. Thanks to Alex J. for pointing this out.
-  uint64_t bytes = (uint64_t)skip;
-  bytes *= mult;
-  int quads = (bytes + 3) / 4;
-  sample->datap += quads;
-  if(bytes > sample->rawSampleLen || (uint8_t *)sample->datap > sample->endp) {
+  int64_t bytes = (int64_t)skip * mult;
+  int64_t quads = (bytes + 3) / 4;
+  int64_t remaining = (int64_t)(sample->endp - (uint8_t *)sample->datap);
+  if((quads * 4) > remaining) {
     SFABORT(sample, SF_ABORT_EOS);
   }
+  sample->datap += quads;
 }
 
 static void skipBytes(SFSample *sample, uint32_t skip) {
