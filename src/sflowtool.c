@@ -2794,12 +2794,20 @@ static double getDouble(SFSample *sample) {
   return dbl;
 }
 
-static void skipBytes(SFSample *sample, uint32_t skip) {
-  int quads = (skip + 3) / 4;
+static void skipBytesN(SFSample *sample, uint32_t skip, uint32_t mult) {
+  // expand into wider integer to avoid overflow errors, e.g. if
+  // skip >= 0x40000000 and mult == 4. Thanks to Alex J. for pointing this out.
+  uint64_t bytes = (uint64_t)skip;
+  bytes *= mult;
+  int quads = (bytes + 3) / 4;
   sample->datap += quads;
-  if(skip > sample->rawSampleLen || (uint8_t *)sample->datap > sample->endp) {
+  if(bytes > sample->rawSampleLen || (uint8_t *)sample->datap > sample->endp) {
     SFABORT(sample, SF_ABORT_EOS);
   }
+}
+
+static void skipBytes(SFSample *sample, uint32_t skip) {
+  skipBytesN(sample, skip, 1);
 }
 
 static uint32_t sf_log_next32(SFSample *sample, char *fieldName) {
@@ -2950,7 +2958,7 @@ static void readExtendedGateway_v2(SFSample *sample)
   if(sample->s.dst_as_path_len > 0) {
     sample->s.dst_as_path = sample->datap;
     /* and skip over it in the input */
-    skipBytes(sample, sample->s.dst_as_path_len * 4);
+    skipBytesN(sample, sample->s.dst_as_path_len, 4);
     /* fill in the dst and dst_peer fields too */
     sample->s.dst_peer_as = ntohl(sample->s.dst_as_path[0]);
     sample->s.dst_as = ntohl(sample->s.dst_as_path[sample->s.dst_as_path_len - 1]);
@@ -3014,7 +3022,7 @@ static void readExtendedGateway(SFSample *sample)
       seg_len = getData32(sample);
       seg_data = sample->datap;
       if(seg_len > 0) {
-	skipBytes(sample, seg_len * 4);
+	skipBytesN(sample, seg_len, 4);
 	/* mark the first ASN as the dst_peer_as */
 	if(seg == 0)
 	  sample->s.dst_peer_as = ntohl(seg_data[0]);
@@ -3038,7 +3046,7 @@ static void readExtendedGateway(SFSample *sample)
   /* just point at the communities array */
   if(sample->s.communities_len > 0) sample->s.communities = sample->datap;
   /* and skip over it in the input */
-  skipBytes(sample, sample->s.communities_len * 4);
+  skipBytesN(sample, sample->s.communities_len, 4);
 
   sample->s.extended_data_tag |= SASAMPLE_EXTENDED_DATA_GATEWAY;
   if(sample->s.communities_len > 0) {
@@ -3131,7 +3139,7 @@ static void mplsLabelStack(SFSample *sample, char *fieldName)
   /* just point at the lablelstack array */
   if(lstk.depth > 0) lstk.stack = (uint32_t *)sample->datap;
   /* and skip over it in the input */
-  skipBytes(sample, lstk.depth * 4);
+  skipBytesN(sample, lstk.depth, 4);
 
   if(lstk.depth > 0) {
     SFStr lsstr;
@@ -3279,7 +3287,7 @@ static void readExtendedVlanTunnel(SFSample *sample)
   /* just point at the lablelstack array */
   if(lstk.depth > 0) lstk.stack = (uint32_t *)sample->datap;
   /* and skip over it in the input */
-  skipBytes(sample, lstk.depth * 4);
+  skipBytesN(sample, lstk.depth, 4);
 
   if(lstk.depth > 0) {
     SFStr vtstr;
