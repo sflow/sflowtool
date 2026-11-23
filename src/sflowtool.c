@@ -2794,7 +2794,7 @@ static double getDouble(SFSample *sample) {
   return dbl;
 }
 
-static void skipBytesN(SFSample *sample, uint32_t skip, uint32_t mult) {
+static void skipBytesN(SFSample *sample, uint32_t skip, uint8_t mult) {
   // expand into wider integer to avoid overflow errors, e.g. if
   // skip >= 0x40000000 and mult == 4. Thanks to Alex J. for pointing this out.
   int64_t bytes = (int64_t)skip * mult;
